@@ -115,10 +115,6 @@ def init_db():
     cursor.execute('''
     CREATE INDEX IF NOT EXISTS idx_trace_target ON traceability(targetRequirementId)
     ''')
-    cursor.execute('''
-    CREATE INDEX IF NOT EXISTS idx_doc_parent ON documents(parent_document_id)
-    ''')
-    
     # --- Migrations for existing databases ---
     # Add columns to existing requirements table if they don't exist
     cursor.execute('PRAGMA table_info(requirements)')
@@ -139,6 +135,9 @@ def init_db():
     
     if 'parent_document_id' not in doc_columns:
         cursor.execute('ALTER TABLE documents ADD COLUMN parent_document_id TEXT')
+    
+    # Create index on parent_document_id (after migration ensures column exists)
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_doc_parent ON documents(parent_document_id)')
     
     # --- Version Control Tables ---
     # Create commits table
@@ -997,7 +996,7 @@ def add_audit_log(action, actor_type, actor_name, resource_type, resource_id, ch
     cursor.execute('''
     INSERT INTO audit_log (id, timestamp, action, actorType, actorName, resourceType, resourceId, changeDetails)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (log_id, now, action, actor_type, actor_name, resource_type, resource_id, change_details))
+    ''', (log_id, now, action, actor_type, actor_name, resource_type, resource_id, json.dumps(change_details) if change_details else None))
     
     conn.commit()
     

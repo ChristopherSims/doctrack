@@ -7,7 +7,7 @@ from database import create_commit, get_commits, get_commit
 from database import create_branch, get_branches, checkout_branch, merge_branches
 from database import create_tag, get_tags
 from database import create_traceability_link, get_traceability_links, delete_traceability_link
-from database import log_audit, get_audit_log
+from database import add_audit_log, get_audit_log
 from export import export_csv, export_word, export_pdf
 import os
 import json
@@ -258,7 +258,7 @@ def create_commit_route(doc_id):
             return jsonify({'success': False, 'error': 'Document not found'}), 404
         current_branch = document.get('currentBranch', 'main')
         commit = create_commit(doc_id, current_branch, data['message'], data['author'])
-        log_audit('create_commit', 'document', doc_id, data['author'], {'commitId': commit['id'], 'branch': current_branch})
+        add_audit_log('create_commit', 'document', data['author'], 'document', doc_id, {'commitId': commit['id'], 'branch': current_branch})
         return jsonify({'success': True, 'data': commit}), 201
     except Exception as e:
         logger.error(f"Error creating commit for document {doc_id}: {e}")
@@ -355,7 +355,7 @@ def create_branch_route(doc_id):
         branch = create_branch(doc_id, data['name'], data.get('description'), data['createdBy'])
         if not branch:
             return jsonify({'success': False, 'error': 'Branch name already exists'}), 409
-        log_audit('create_branch', 'document', doc_id, data['createdBy'], {'branchName': data['name']})
+        add_audit_log('create_branch', 'document', data['createdBy'], 'document', doc_id, {'branchName': data['name']})
         return jsonify({'success': True, 'data': branch}), 201
     except Exception as e:
         logger.error(f"Error creating branch for document {doc_id}: {e}")
@@ -376,7 +376,7 @@ def checkout_branch_route(doc_id, branch_name):
         document = checkout_branch(doc_id, branch_name)
         if not document:
             return jsonify({'success': False, 'error': 'Document not found'}), 404
-        log_audit('checkout_branch', 'document', doc_id, None, {'branchName': branch_name})
+        add_audit_log('checkout_branch', 'document', None, 'document', doc_id, {'branchName': branch_name})
         return jsonify({'success': True, 'data': document})
     except Exception as e:
         logger.error(f"Error checking out branch {branch_name} for document {doc_id}: {e}")
@@ -391,7 +391,7 @@ def merge_branches_route(doc_id):
         result = merge_branches(doc_id, data['sourceBranch'], data['targetBranch'], data['author'])
         if not result:
             return jsonify({'success': False, 'error': 'No commits found on source branch to merge'}), 400
-        log_audit('merge_branches', 'document', doc_id, data['author'],
+        add_audit_log('merge_branches', 'document', data['author'], 'document', doc_id,
                   {'sourceBranch': data['sourceBranch'], 'targetBranch': data['targetBranch'], 'commitId': result['id']})
         return jsonify({'success': True, 'data': result})
     except Exception as e:
@@ -409,7 +409,7 @@ def create_tag_route(doc_id):
         tag = create_tag(doc_id, data['name'], data['commitId'], data.get('message'), data['createdBy'])
         if not tag:
             return jsonify({'success': False, 'error': 'Tag name already exists for this document'}), 409
-        log_audit('create_tag', 'document', doc_id, data['createdBy'], {'tagName': data['name'], 'commitId': data['commitId']})
+        add_audit_log('create_tag', 'document', data['createdBy'], 'document', doc_id, {'tagName': data['name'], 'commitId': data['commitId']})
         return jsonify({'success': True, 'data': tag}), 201
     except Exception as e:
         logger.error(f"Error creating tag for document {doc_id}: {e}")
@@ -438,7 +438,7 @@ def create_traceability_route():
             data['targetDocumentId'],
             data['linkType']
         )
-        log_audit('create_traceability_link', 'requirement', data['sourceRequirementId'], None,
+        add_audit_log('create_traceability_link', 'requirement', None, 'requirement', data['sourceRequirementId'],
                   {'targetRequirementId': data['targetRequirementId'], 'linkType': data['linkType']})
         return jsonify({'success': True, 'data': link}), 201
     except Exception as e:
@@ -460,7 +460,7 @@ def delete_traceability_route(link_id):
         deleted = delete_traceability_link(link_id)
         if not deleted:
             return jsonify({'success': False, 'error': 'Traceability link not found'}), 404
-        log_audit('delete_traceability_link', 'traceability', link_id)
+        add_audit_log('delete_traceability_link', 'traceability', None, 'traceability', link_id)
         return jsonify({'success': True, 'data': None})
     except Exception as e:
         logger.error(f"Error deleting traceability link {link_id}: {e}")
