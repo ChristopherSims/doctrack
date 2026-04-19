@@ -8,6 +8,7 @@ from database import create_branch, get_branches, checkout_branch, merge_branche
 from database import create_tag, get_tags
 from database import create_traceability_link, get_traceability_links, delete_traceability_link
 from database import log_audit, get_audit_log
+from export import export_csv, export_word, export_pdf
 import os
 import json
 import logging
@@ -484,6 +485,43 @@ def health():
     return jsonify({'status': 'ok'})
 
 # --- Error handlers ---
+
+# --- Export ---
+
+@app.route('/api/documents/<doc_id>/export/<format>', methods=['POST'])
+def export_document(doc_id, format):
+    try:
+        # Verify document exists
+        document = get_document_db(doc_id)
+        if not document:
+            return jsonify({'success': False, 'error': 'Document not found'}), 404
+
+        if format == 'csv':
+            csv_content = export_csv(doc_id)
+            return csv_content, 200, {
+                'Content-Type': 'text/csv',
+                'Content-Disposition': f'attachment; filename="{document.get("title", "document")}.csv"'
+            }
+        elif format == 'word':
+            docx_bytes = export_word(doc_id)
+            return docx_bytes, 200, {
+                'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'Content-Disposition': f'attachment; filename="{document.get("title", "document")}.docx"'
+            }
+        elif format == 'pdf':
+            pdf_bytes = export_pdf(doc_id)
+            return pdf_bytes, 200, {
+                'Content-Type': 'application/pdf',
+                'Content-Disposition': f'attachment; filename="{document.get("title", "document")}.pdf"'
+            }
+        else:
+            return jsonify({'success': False, 'error': f'Unsupported export format: {format}. Use csv, word, or pdf.'}), 400
+    except ImportError as e:
+        logger.error(f"Missing export dependency: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 501
+    except Exception as e:
+        logger.error(f"Error exporting document {doc_id} as {format}: {e}")
+        return jsonify({'success': False, 'error': f'Export failed: {str(e)}'}), 500
 
 @app.errorhandler(404)
 def not_found(error):

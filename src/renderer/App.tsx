@@ -15,6 +15,7 @@ import HistoryPage from './pages/HistoryPage';
 import BranchesPage from './pages/BranchesPage';
 import ExportPage from './pages/ExportPage';
 import SettingsPage from './pages/SettingsPage';
+import DiffViewPage from './pages/DiffViewPage';
 
 const theme = createTheme({
   palette: {
@@ -39,7 +40,7 @@ const theme = createTheme({
   },
 });
 
-export type Page = 'documents' | 'requirements' | 'history' | 'branches' | 'export' | 'settings';
+export type Page = 'documents' | 'requirements' | 'history' | 'branches' | 'export' | 'settings' | 'diff';
 
 interface AppState {
   currentPage: Page;
@@ -114,6 +115,13 @@ const App: React.FC = () => {
         ) : null;
       case 'settings':
         return <SettingsPage />;
+      case 'diff':
+        return appState.selectedDocumentId ? (
+          <DiffViewPage
+            documentId={appState.selectedDocumentId}
+            documentTitle={appState.selectedDocumentTitle}
+          />
+        ) : null;
       default:
         return null;
     }
