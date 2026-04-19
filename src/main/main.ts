@@ -1,5 +1,7 @@
-import { app, BrowserWindow, Menu } from 'electron';
+import { app, BrowserWindow, Menu, dialog, shell } from 'electron';
 import path from 'path';
+import fs from 'fs';
+import os from 'os';
 import isDev from 'electron-is-dev';
 import { spawn } from 'child_process';
 import axios from 'axios';
@@ -15,6 +17,41 @@ const FLASK_PORT = 5000;
 const FLASK_URL = `http://localhost:${FLASK_PORT}`;
 let VITE_PORT = 3000;
 let VITE_URL = `http://localhost:${VITE_PORT}`;
+
+// Window state persistence
+interface WindowState {
+  x?: number;
+  y?: number;
+  width: number;
+  height: number;
+  isMaximized?: boolean;
+}
+
+const WINDOW_STATE_PATH = path.join(os.homedir(), '.doctrack', 'window-state.json');
+
+function loadWindowState(): WindowState {
+  try {
+    if (fs.existsSync(WINDOW_STATE_PATH)) {
+      const data = fs.readFileSync(WINDOW_STATE_PATH, 'utf-8');
+      return JSON.parse(data) as WindowState;
+    }
+  } catch (err) {
+    console.warn('Failed to load window state:', err);
+  }
+  return { width: 1400, height: 900 };
+}
+
+function saveWindowState(state: WindowState): void {
+  try {
+    const dir = path.dirname(WINDOW_STATE_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(WINDOW_STATE_PATH, JSON.stringify(state, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Failed to save window state:', err);
+  }
+}
 
 // Wait for Vite dev server to be ready (tries ports 3000-3005)
 async function waitForVite(maxAttempts = 60) {
@@ -99,9 +136,13 @@ function startFlaskServer() {
 }
 
 const createWindow = (): void => {
+  const windowState = loadWindowState();
+
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: windowState.width,
+    height: windowState.height,
+    x: windowState.x,
+    y: windowState.y,
     minWidth: 1000,
     minHeight: 600,
     webPreferences: {
@@ -109,6 +150,10 @@ const createWindow = (): void => {
       contextIsolation: true,
     },
   });
+
+  if (windowState.isMaximized) {
+    mainWindow.maximize();
+  }
 
   const startUrl = isDev
     ? VITE_URL
@@ -119,6 +164,21 @@ const createWindow = (): void => {
   if (isDev) {
     mainWindow.webContents.openDevTools();
   }
+
+  // Save window state on close
+  mainWindow.on('close', (): void => {
+    if (mainWindow) {
+      const isMaximized = mainWindow.isMaximized();
+      const bounds = mainWindow.getBounds();
+      saveWindowState({
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        isMaximized,
+      });
+    }
+  });
 
   mainWindow.on('closed', (): void => {
     mainWindow = null;
@@ -177,11 +237,34 @@ app.on('activate', (): void => {
 
 // Create application menu
 const createMenu = (): void => {
-  const template = [
+  const template: Electron.MenuItemConstructorOptions[] = [
     {
       label: 'File',
       submenu: [
-        { label: 'Exit', accelerator: 'CmdOrCtrl+Q', click: (): void => app.quit() },
+        {
+          label: 'New Document',
+          accelerator: 'CmdOrCtrl+N',
+          click: (): void => {
+            if (mainWindow) {
+              mainWindow.webContents.send('menu-new-document');
+            }
+          },
+        },
+        {
+          label: 'Export',
+          accelerator: 'CmdOrCtrl+E',
+          click: (): void => {
+            if (mainWindow) {
+              mainWindow.webContents.send('menu-export');
+            }
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Exit',
+          accelerator: 'CmdOrCtrl+Q',
+          click: (): void => app.quit(),
+        },
       ],
     },
     {
@@ -200,9 +283,41 @@ const createMenu = (): void => {
       submenu: [
         { label: 'Reload', accelerator: 'CmdOrCtrl+R', role: 'reload' },
         { label: 'Toggle DevTools', accelerator: 'CmdOrCtrl+I', role: 'toggleDevTools' },
+        { type: 'separator' },
+        {
+          label: 'Fullscreen',
+          accelerator: 'F11',
+          click: (): void => {
+            if (mainWindow) {
+              mainWindow.setFullScreen(!mainWindow.isFullScreen());
+            }
+          },
+        },
+      ],
+    },
+    {
+      label: 'Help',
+      submenu: [
+        {
+          label: 'About',
+          click: (): void => {
+            dialog.showMessageBoxSync({
+              type: 'info',
+              title: 'About DocTrack',
+              message: 'DocTrack Requirements Tracker',
+              detail: `Version: 0.1.0\nDescription: Document Requirements Tracker with Git-like Version Control\n\nBuilt with Electron, React, and Flask.`,
+            });
+          },
+        },
+        {
+          label: 'Documentation',
+          click: (): void => {
+            shell.openExternal('https://github.com/doctrack/doctrack');
+          },
+        },
       ],
     },
   ];
 
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template as any));
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 };

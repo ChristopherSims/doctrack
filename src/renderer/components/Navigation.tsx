@@ -20,6 +20,7 @@ import {
   FileDownload as ExportIcon,
   CompareArrows as CompareArrowsIcon,
   DeviceHub as DeviceHubIcon,
+  FactCheck as FactCheckIcon,
 } from '@mui/icons-material';
 import type { Page } from '../App';
 
@@ -46,6 +47,7 @@ const Navigation: React.FC<NavigationProps> = ({ currentPage, onNavigate, select
   ] : [];
 
   const globalMenuItems = [
+    { label: 'Audit Log', icon: <FactCheckIcon />, page: 'audit' as Page },
     { label: 'Settings', icon: <SettingsIcon />, page: 'settings' as Page },
   ];
 

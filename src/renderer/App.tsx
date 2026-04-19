@@ -17,6 +17,7 @@ import ExportPage from './pages/ExportPage';
 import SettingsPage from './pages/SettingsPage';
 import DiffViewPage from './pages/DiffViewPage';
 import TraceabilityPage from './pages/TraceabilityPage';
+import AuditLogPage from './pages/AuditLogPage';
 
 const theme = createTheme({
   palette: {
@@ -41,7 +42,7 @@ const theme = createTheme({
   },
 });
 
-export type Page = 'documents' | 'requirements' | 'history' | 'branches' | 'export' | 'settings' | 'diff' | 'traceability';
+export type Page = 'documents' | 'requirements' | 'history' | 'branches' | 'export' | 'settings' | 'diff' | 'traceability' | 'audit';
 
 interface AppState {
   currentPage: Page;
@@ -130,6 +131,8 @@ const App: React.FC = () => {
             documentTitle={appState.selectedDocumentTitle}
           />
         ) : null;
+      case 'audit':
+        return <AuditLogPage documentId={appState.selectedDocumentId ?? undefined} />;
       default:
         return null;
     }
