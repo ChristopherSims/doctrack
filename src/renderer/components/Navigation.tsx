@@ -19,6 +19,7 @@ import {
   CallSplit as BranchIcon,
   FileDownload as ExportIcon,
   CompareArrows as CompareArrowsIcon,
+  DeviceHub as DeviceHubIcon,
 } from '@mui/icons-material';
 import type { Page } from '../App';
 
@@ -41,6 +42,7 @@ const Navigation: React.FC<NavigationProps> = ({ currentPage, onNavigate, select
     { label: 'Branches', icon: <BranchIcon />, page: 'branches' as Page },
     { label: 'Export', icon: <ExportIcon />, page: 'export' as Page },
     { label: 'Diff View', icon: <CompareArrowsIcon />, page: 'diff' as Page },
+    { label: 'Traceability', icon: <DeviceHubIcon />, page: 'traceability' as Page },
   ] : [];
 
   const globalMenuItems = [

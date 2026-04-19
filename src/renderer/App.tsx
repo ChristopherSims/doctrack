@@ -16,6 +16,7 @@ import BranchesPage from './pages/BranchesPage';
 import ExportPage from './pages/ExportPage';
 import SettingsPage from './pages/SettingsPage';
 import DiffViewPage from './pages/DiffViewPage';
+import TraceabilityPage from './pages/TraceabilityPage';
 
 const theme = createTheme({
   palette: {
@@ -40,7 +41,7 @@ const theme = createTheme({
   },
 });
 
-export type Page = 'documents' | 'requirements' | 'history' | 'branches' | 'export' | 'settings' | 'diff';
+export type Page = 'documents' | 'requirements' | 'history' | 'branches' | 'export' | 'settings' | 'diff' | 'traceability';
 
 interface AppState {
   currentPage: Page;
@@ -118,6 +119,13 @@ const App: React.FC = () => {
       case 'diff':
         return appState.selectedDocumentId ? (
           <DiffViewPage
+            documentId={appState.selectedDocumentId}
+            documentTitle={appState.selectedDocumentTitle}
+          />
+        ) : null;
+      case 'traceability':
+        return appState.selectedDocumentId ? (
+          <TraceabilityPage
             documentId={appState.selectedDocumentId}
             documentTitle={appState.selectedDocumentTitle}
           />
