@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box,
   Button,
@@ -36,9 +36,18 @@ import {
   ArrowBack as ArrowBackIcon,
   Save as SaveIcon,
   Link as LinkIcon,
+  ChevronRight as ChevronRightIcon,
+  ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
 import type { Requirement } from '../../types/index';
 import * as API from '../../api/api';
+import {
+  getLevelDepth,
+  getParentLevels,
+  filterVisibleRequirements,
+  computeLevelOptions,
+  levelComparator,
+} from '../utils/levelTree';
 
 interface RequirementsPageProps {
   documentId: string;
@@ -90,6 +99,9 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
   const [selectedDocForTrace, setSelectedDocForTrace] = useState('');
   const [stats, setStats] = useState<{ total: number; byStatus: Record<string, number>; byPriority: Record<string, number> } | null>(null);
 
+  // Expand/collapse state: Set of level strings whose children are visible
+  const [expandedLevels, setExpandedLevels] = useState<Set<string>>(new Set());
+
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -107,6 +119,23 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
     loadData();
   }, [documentId]);
 
+  // Compute parent levels from current requirements
+  const parentLevelSet = useMemo(() => {
+    const levels = requirements.map(r => r.level || '1');
+    return getParentLevels(levels);
+  }, [requirements]);
+
+  // Compute visible rows based on expand/collapse state
+  const visibleRequirements = useMemo(() => {
+    return filterVisibleRequirements(requirements, expandedLevels);
+  }, [requirements, expandedLevels]);
+
+  // Compute dynamic level options for the dialog dropdown
+  const levelOptions = useMemo(() => {
+    const levels = requirements.map(r => r.level || '1');
+    return computeLevelOptions(levels);
+  }, [requirements]);
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -117,7 +146,13 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
 
       const reqResult = await API.getRequirements(documentId);
       if (reqResult.success) {
-        setRequirements(reqResult.data || []);
+        const reqs = reqResult.data || [];
+        // Sort by level in tree order
+        reqs.sort((a: Requirement, b: Requirement) => levelComparator(a.level || '1', b.level || '1'));
+        setRequirements(reqs);
+        // Auto-expand all levels on initial load
+        const levels = reqs.map((r: Requirement) => r.level || '1');
+        setExpandedLevels(getParentLevels(levels));
       }
 
       const statsResult = await API.getDocumentStats(documentId);
@@ -135,6 +170,27 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
       setLoading(false);
     }
   };
+
+  const toggleExpand = useCallback((level: string) => {
+    setExpandedLevels(prev => {
+      const next = new Set(prev);
+      if (next.has(level)) {
+        next.delete(level);
+      } else {
+        next.add(level);
+      }
+      return next;
+    });
+  }, []);
+
+  const expandAll = useCallback(() => {
+    const levels = requirements.map(r => r.level || '1');
+    setExpandedLevels(getParentLevels(levels));
+  }, [requirements]);
+
+  const collapseAll = useCallback(() => {
+    setExpandedLevels(new Set());
+  }, []);
 
   const handleRowUpdate = useCallback((newRow: GridRowModel, oldRow: GridRowModel) => {
     if (JSON.stringify(newRow) === JSON.stringify(oldRow)) {
@@ -301,15 +357,51 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
     {
       field: 'level',
       headerName: 'Level',
-      width: 90,
+      width: 150,
       editable: true,
       type: 'singleSelect',
-      valueOptions: ['1', '1.1', '1.1.1', '1.2', '1.2.1', '1.3', '2', '2.1', '2.1.1', '2.2', '2.2.1', '2.3', '3', '3.1', '3.2'],
-      renderCell: (params: GridRenderCellParams) => (
-        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
-          {params.value || '1'}
-        </Typography>
-      ),
+      valueOptions: levelOptions,
+      renderCell: (params: GridRenderCellParams) => {
+        const level = params.value || '1';
+        const depth = getLevelDepth(level);
+        const isParent = parentLevelSet.has(level);
+        const isExpanded = expandedLevels.has(level);
+        const indentPx = depth * 20;
+
+        return (
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              pl: `${indentPx}px`,
+              width: '100%',
+              height: '100%',
+              cursor: isParent ? 'pointer' : 'default',
+            }}
+            onClick={(e) => {
+              if (isParent) {
+                e.stopPropagation();
+                toggleExpand(level);
+              }
+            }}
+          >
+            {isParent ? (
+              <IconButton size="small" sx={{ mr: 0.5, p: 0.25 }}>
+                {isExpanded ? (
+                  <ExpandMoreIcon fontSize="small" />
+                ) : (
+                  <ChevronRightIcon fontSize="small" />
+                )}
+              </IconButton>
+            ) : (
+              <Box sx={{ width: 24, mr: 0.5 }} />
+            )}
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
+              {level}
+            </Typography>
+          </Box>
+        );
+      },
     },
     {
       field: 'id',
@@ -468,6 +560,12 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
             Save All ({dirtyRows.size})
           </Button>
         )}
+        <Button variant="outlined" size="small" onClick={expandAll}>
+          Expand All
+        </Button>
+        <Button variant="outlined" size="small" onClick={collapseAll}>
+          Collapse All
+        </Button>
         <GridToolbarFilterButton />
         <GridToolbarExport />
       </Box>
@@ -515,7 +613,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
       {/* Main Data Grid */}
       <Box sx={{ flex: 1, minHeight: 0 }} onContextMenu={handleGridContextMenu}>
         <DataGrid
-          rows={requirements}
+          rows={visibleRequirements}
           columns={columns}
           density="compact"
           editMode="row"
@@ -545,9 +643,6 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
             },
           }}
           initialState={{
-            sorting: {
-              sortModel: [{ field: 'level', sort: 'asc' }],
-            },
             columns: {
               columnVisibilityModel: {
                 changeRequestLink: false,
@@ -609,25 +704,24 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
           </Typography>
           <Stack spacing={2}>
             <Box sx={{ display: 'flex', gap: 2 }}>
-              <FormControl sx={{ minWidth: 120 }}>
+              <FormControl sx={{ minWidth: 160 }}>
                 <InputLabel>Level</InputLabel>
                 <Select
                   value={formData.level}
                   label="Level"
                   onChange={(e) => setFormData({ ...formData, level: e.target.value })}
                 >
-                  <MenuItem value="1">1</MenuItem>
-                  <MenuItem value="1.1">1.1</MenuItem>
-                  <MenuItem value="1.1.1">1.1.1</MenuItem>
-                  <MenuItem value="1.2">1.2</MenuItem>
-                  <MenuItem value="1.2.1">1.2.1</MenuItem>
-                  <MenuItem value="1.3">1.3</MenuItem>
-                  <MenuItem value="2">2</MenuItem>
-                  <MenuItem value="2.1">2.1</MenuItem>
-                  <MenuItem value="2.1.1">2.1.1</MenuItem>
-                  <MenuItem value="2.2">2.2</MenuItem>
-                  <MenuItem value="3">3</MenuItem>
-                  <MenuItem value="3.1">3.1</MenuItem>
+                  {levelOptions.map((opt) => {
+                    const depth = getLevelDepth(opt);
+                    const label = '\u00A0'.repeat(depth * 4) + opt;
+                    return (
+                      <MenuItem key={opt} value={opt}>
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                          {label}
+                        </Typography>
+                      </MenuItem>
+                    );
+                  })}
                 </Select>
               </FormControl>
               <TextField
