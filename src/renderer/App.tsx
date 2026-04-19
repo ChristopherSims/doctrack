@@ -4,16 +4,17 @@ import {
   createTheme,
   CssBaseline,
   Box,
-  Container,
   AppBar,
   Toolbar,
   Typography,
-  Button,
-  Menu,
-  MenuItem,
 } from '@mui/material';
+import Navigation from './components/Navigation';
 import DocumentsPage from './pages/DocumentsPage';
 import RequirementsPage from './pages/RequirementsPage';
+import HistoryPage from './pages/HistoryPage';
+import BranchesPage from './pages/BranchesPage';
+import ExportPage from './pages/ExportPage';
+import SettingsPage from './pages/SettingsPage';
 
 const theme = createTheme({
   palette: {
@@ -38,40 +39,81 @@ const theme = createTheme({
   },
 });
 
-export type Page = 'documents' | 'requirements' | 'settings';
+export type Page = 'documents' | 'requirements' | 'history' | 'branches' | 'export' | 'settings';
 
 interface AppState {
   currentPage: Page;
   selectedDocumentId: string | null;
+  selectedDocumentTitle: string;
+  currentBranch: string;
 }
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>({
     currentPage: 'documents',
     selectedDocumentId: null,
+    selectedDocumentTitle: '',
+    currentBranch: 'main',
   });
-  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
 
-  const handleNavigate = (page: Page, documentId?: string) => {
+  const handleNavigate = (page: Page, documentId?: string, documentTitle?: string) => {
     setAppState({
       currentPage: page,
-      selectedDocumentId: documentId || null,
+      selectedDocumentId: documentId || appState.selectedDocumentId,
+      selectedDocumentTitle: documentTitle || appState.selectedDocumentTitle,
+      currentBranch: appState.currentBranch,
     });
+  };
+
+  const handleSelectDocument = (id: string, title: string) => {
+    setAppState({
+      currentPage: 'requirements',
+      selectedDocumentId: id,
+      selectedDocumentTitle: title,
+      currentBranch: 'main',
+    });
+  };
+
+  const handleBranchChange = (branchName: string) => {
+    setAppState(prev => ({ ...prev, currentBranch: branchName }));
   };
 
   const renderPage = () => {
     switch (appState.currentPage) {
       case 'documents':
-        return <DocumentsPage onSelectDocument={(id: string) => handleNavigate('requirements', id)} />;
+        return <DocumentsPage onSelectDocument={handleSelectDocument} />;
       case 'requirements':
         return appState.selectedDocumentId ? (
-          <RequirementsPage 
+          <RequirementsPage
             documentId={appState.selectedDocumentId}
             onBack={() => handleNavigate('documents')}
           />
         ) : null;
+      case 'history':
+        return appState.selectedDocumentId ? (
+          <HistoryPage
+            documentId={appState.selectedDocumentId}
+            documentTitle={appState.selectedDocumentTitle}
+          />
+        ) : null;
+      case 'branches':
+        return appState.selectedDocumentId ? (
+          <BranchesPage
+            documentId={appState.selectedDocumentId}
+            documentTitle={appState.selectedDocumentTitle}
+            currentBranch={appState.currentBranch}
+            onBranchChange={handleBranchChange}
+          />
+        ) : null;
+      case 'export':
+        return appState.selectedDocumentId ? (
+          <ExportPage
+            documentId={appState.selectedDocumentId}
+            documentTitle={appState.selectedDocumentTitle}
+          />
+        ) : null;
       case 'settings':
-        return <Container>Settings Page - Coming Soon</Container>;
+        return <SettingsPage />;
       default:
         return null;
     }
@@ -80,40 +122,35 @@ const App: React.FC = () => {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-        {/* Top Application Menu Bar */}
-        <AppBar position="static" sx={{ bgcolor: '#1976d2' }}>
-          <Toolbar sx={{ display: 'flex', justifyContent: 'space-between' }}>
-            <Typography variant="h6" sx={{ fontWeight: 600 }}>
-              DocTrack
-            </Typography>
-            <Box>
-              <Button
-                color="inherit"
-                onClick={(e) => setMenuAnchor(e.currentTarget)}
-                sx={{ textTransform: 'none', fontSize: '1rem' }}
-              >
-                ☰ Menu
-              </Button>
-              <Menu
-                anchorEl={menuAnchor}
-                open={Boolean(menuAnchor)}
-                onClose={() => setMenuAnchor(null)}
-              >
-                <MenuItem onClick={() => setMenuAnchor(null)}>
-                  Documents
-                </MenuItem>
-                <MenuItem onClick={() => setMenuAnchor(null)}>
-                  Settings
-                </MenuItem>
-              </Menu>
-            </Box>
-          </Toolbar>
-        </AppBar>
+      <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+        {/* Sidebar */}
+        <Navigation
+          currentPage={appState.currentPage}
+          onNavigate={handleNavigate}
+          selectedDocumentTitle={appState.selectedDocumentTitle || undefined}
+          currentBranch={appState.currentBranch}
+        />
 
-        {/* Page Content */}
-        <Box sx={{ flex: 1, overflow: 'auto' }}>
-          {renderPage()}
+        {/* Main Content */}
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {/* Top Bar */}
+          <AppBar position="static" color="default" elevation={1} sx={{ bgcolor: '#fff' }}>
+            <Toolbar variant="dense">
+              <Typography variant="body2" color="textSecondary" sx={{ flex: 1 }}>
+                {appState.selectedDocumentTitle && appState.currentPage !== 'documents'
+                  ? `${appState.selectedDocumentTitle} — ${appState.currentPage.charAt(0).toUpperCase() + appState.currentPage.slice(1)}`
+                  : 'DocTrack Requirements Tracker'}
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                Branch: {appState.currentBranch}
+              </Typography>
+            </Toolbar>
+          </AppBar>
+
+          {/* Page Content */}
+          <Box sx={{ flex: 1, overflow: 'auto' }}>
+            {renderPage()}
+          </Box>
         </Box>
       </Box>
     </ThemeProvider>

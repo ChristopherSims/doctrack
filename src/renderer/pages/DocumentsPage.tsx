@@ -18,7 +18,7 @@ import type { Document } from '../../types/index';
 import * as API from '../../api/api';
 
 interface DocumentsPageProps {
-  onSelectDocument: (id: string) => void;
+  onSelectDocument: (id: string, title: string) => void;
 }
 
 const DocumentsPage: React.FC<DocumentsPageProps> = ({ onSelectDocument }) => {
@@ -153,7 +153,7 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ onSelectDocument }) => {
                   display: 'flex',
                   flexDirection: 'column',
                 }}
-                onClick={() => onSelectDocument(doc.id)}
+                onClick={() => onSelectDocument(doc.id, doc.title)}
               >
                 <CardContent sx={{ flex: 1 }}>
                   <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
