@@ -140,6 +140,87 @@ def init_db():
     if 'parent_document_id' not in doc_columns:
         cursor.execute('ALTER TABLE documents ADD COLUMN parent_document_id TEXT')
     
+    # --- Version Control Tables ---
+    # Create commits table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS commits (
+        id TEXT PRIMARY KEY,
+        documentId TEXT NOT NULL,
+        branchName TEXT NOT NULL,
+        message TEXT NOT NULL,
+        author TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        parentCommitId TEXT,
+        snapshot TEXT NOT NULL,
+        FOREIGN KEY (documentId) REFERENCES documents(id)
+    )
+    ''')
+    
+    # Create branches table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS branches (
+        id TEXT PRIMARY KEY,
+        documentId TEXT NOT NULL,
+        name TEXT NOT NULL,
+        headCommitId TEXT,
+        createdAt TEXT NOT NULL,
+        createdBy TEXT NOT NULL,
+        description TEXT,
+        FOREIGN KEY (documentId) REFERENCES documents(id)
+    )
+    ''')
+    
+    # Create tags table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS tags (
+        id TEXT PRIMARY KEY,
+        documentId TEXT NOT NULL,
+        name TEXT NOT NULL,
+        commitId TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        createdBy TEXT NOT NULL,
+        message TEXT,
+        FOREIGN KEY (documentId) REFERENCES documents(id),
+        FOREIGN KEY (commitId) REFERENCES commits(id)
+    )
+    ''')
+    
+    # Create audit_log table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS audit_log (
+        id TEXT PRIMARY KEY,
+        timestamp TEXT NOT NULL,
+        action TEXT NOT NULL,
+        actorType TEXT DEFAULT 'human',
+        actorName TEXT DEFAULT 'system',
+        resourceType TEXT NOT NULL,
+        resourceId TEXT NOT NULL,
+        changeDetails TEXT,
+        approvalStatus TEXT DEFAULT 'auto_approved',
+        approvedBy TEXT,
+        reason TEXT,
+        aiAgentModel TEXT
+    )
+    ''')
+    
+    # Version control indexes
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_commits_doc_branch ON commits(documentId, branchName)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_branches_doc_name ON branches(documentId, name)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_tags_doc ON tags(documentId)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_audit_resource ON audit_log(resourceId)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)')
+    
+    # Create default 'main' branch for each document that doesn't have one
+    cursor.execute('''
+    INSERT OR IGNORE INTO branches (id, documentId, name, headCommitId, createdAt, createdBy, description)
+    SELECT lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(6))),
+           d.id, 'main', NULL, ?, 'system', 'Default main branch'
+    FROM documents d
+    WHERE NOT EXISTS (
+        SELECT 1 FROM branches b WHERE b.documentId = d.id AND b.name = 'main'
+    )
+    ''', (datetime.utcnow().isoformat(),))
+    
     conn.commit()
     conn.close()
 
@@ -184,6 +265,15 @@ def create_document_db(data):
         'main',
         data.get('parent_document_id')
     ))
+    conn.commit()
+    
+    # Create default 'main' branch for the new document
+    branch_id = str(uuid4())
+    now_branch = datetime.utcnow().isoformat()
+    cursor.execute('''
+    INSERT INTO branches (id, documentId, name, headCommitId, createdAt, createdBy, description)
+    VALUES (?, ?, 'main', NULL, ?, 'system', 'Default main branch')
+    ''', (branch_id, doc_id, now_branch))
     conn.commit()
     
     # Fetch and return the created document
@@ -511,3 +601,473 @@ def delete_requirement_db(req_id):
     cursor.execute('DELETE FROM requirements WHERE id = ?', (req_id,))
     conn.commit()
     conn.close()
+
+# Version Control Functions
+
+def create_commit(document_id, branch_name, message, author):
+    """Create a commit on a branch for a document.
+    
+    Snapshots all current requirements for the document, finds the parent commit
+    (latest on this branch), inserts the commit, and updates the branch head.
+    
+    Returns the commit dict.
+    """
+    commit_id = str(uuid4())
+    now = datetime.utcnow().isoformat()
+    
+    # Get all requirements for the document as snapshot
+    requirements = get_all_requirements(document_id)
+    snapshot = json.dumps(requirements)
+    
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Find parent commit (latest commit on this branch)
+    cursor.execute(
+        'SELECT id FROM commits WHERE documentId = ? AND branchName = ? ORDER BY createdAt DESC LIMIT 1',
+        (document_id, branch_name)
+    )
+    parent_row = cursor.fetchone()
+    parent_commit_id = parent_row['id'] if parent_row else None
+    
+    # Insert commit
+    cursor.execute('''
+    INSERT INTO commits (id, documentId, branchName, message, author, createdAt, parentCommitId, snapshot)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (commit_id, document_id, branch_name, message, author, now, parent_commit_id, snapshot))
+    
+    # Update branch head (create branch if it doesn't exist)
+    cursor.execute(
+        'UPDATE branches SET headCommitId = ? WHERE documentId = ? AND name = ?',
+        (commit_id, document_id, branch_name)
+    )
+    if cursor.rowcount == 0:
+        cursor.execute('''
+        INSERT INTO branches (id, documentId, name, headCommitId, createdAt, createdBy, description)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (str(uuid4()), document_id, branch_name, commit_id, now, author, f'Branch {branch_name}'))
+    
+    conn.commit()
+    
+    # Fetch and return the created commit
+    cursor.execute('SELECT * FROM commits WHERE id = ?', (commit_id,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    commit_dict = dict(row)
+    
+    # Add audit log entry
+    add_audit_log(
+        action='commit',
+        actor_type='human',
+        actor_name=author,
+        resource_type='commit',
+        resource_id=commit_id,
+        change_details=json.dumps({'documentId': document_id, 'branchName': branch_name, 'message': message})
+    )
+    
+    return commit_dict
+
+def get_commits(document_id, branch_name=None):
+    """Get commits for a document, optionally filtered by branch.
+    
+    Returns list of commit dicts ordered by createdAt DESC.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    if branch_name:
+        cursor.execute(
+            'SELECT * FROM commits WHERE documentId = ? AND branchName = ? ORDER BY createdAt DESC',
+            (document_id, branch_name)
+        )
+    else:
+        cursor.execute(
+            'SELECT * FROM commits WHERE documentId = ? ORDER BY createdAt DESC',
+            (document_id,)
+        )
+    
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def get_commit(commit_id):
+    """Get a specific commit by id. Returns dict or None."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM commits WHERE id = ?', (commit_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def create_branch(document_id, name, description, created_by):
+    """Create a new branch for a document.
+    
+    Returns the branch dict, or None if a branch with that name already exists
+    for this document.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Check if branch name already exists for this document
+    cursor.execute(
+        'SELECT id FROM branches WHERE documentId = ? AND name = ?',
+        (document_id, name)
+    )
+    if cursor.fetchone():
+        conn.close()
+        return None
+    
+    branch_id = str(uuid4())
+    now = datetime.utcnow().isoformat()
+    
+    cursor.execute('''
+    INSERT INTO branches (id, documentId, name, headCommitId, createdAt, createdBy, description)
+    VALUES (?, ?, ?, NULL, ?, ?, ?)
+    ''', (branch_id, document_id, name, now, created_by, description))
+    
+    conn.commit()
+    
+    cursor.execute('SELECT * FROM branches WHERE id = ?', (branch_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row)
+
+def get_branches(document_id):
+    """Get all branches for a document. Returns list of branch dicts."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM branches WHERE documentId = ? ORDER BY createdAt ASC', (document_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def get_branch(document_id, branch_name):
+    """Get a specific branch for a document by name. Returns dict or None."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT * FROM branches WHERE documentId = ? AND name = ?',
+        (document_id, branch_name)
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def checkout_branch(document_id, branch_name):
+    """Checkout a branch, restoring its requirements from the head commit snapshot.
+    
+    Deletes existing requirements for the document and re-inserts from the
+    branch's head commit snapshot. Updates the document's currentBranch field.
+    Returns the branch dict.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Get the branch
+    cursor.execute(
+        'SELECT * FROM branches WHERE documentId = ? AND name = ?',
+        (document_id, branch_name)
+    )
+    branch_row = cursor.fetchone()
+    if not branch_row:
+        conn.close()
+        return None
+    
+    branch = dict(branch_row)
+    head_commit_id = branch.get('headCommitId')
+    
+    # If branch has a head commit with a snapshot, restore requirements
+    if head_commit_id:
+        cursor.execute('SELECT * FROM commits WHERE id = ?', (head_commit_id,))
+        commit_row = cursor.fetchone()
+        if commit_row:
+            snapshot = json.loads(commit_row['snapshot'])
+            
+            # Delete existing requirements for this document
+            cursor.execute('DELETE FROM requirements WHERE documentId = ?', (document_id,))
+            
+            # Re-insert requirements from snapshot
+            for req in snapshot:
+                columns = [
+                    'id', 'documentId', 'title', 'description', 'status', 'priority',
+                    'level', 'sequenceNumber', 'createdAt', 'updatedAt', 'createdBy',
+                    'parentRequirementId', 'changeRequestId', 'changeRequestLink',
+                    'testPlan', 'testPlanLink', 'verificationMethod', 'rationale',
+                    'tags', 'custom_fields', 'related_requirements'
+                ]
+                values = []
+                for col in columns:
+                    val = req.get(col)
+                    # Ensure JSON fields are serialized strings
+                    if col in ('tags', 'custom_fields', 'related_requirements') and val is not None:
+                        if isinstance(val, (list, dict)):
+                            val = json.dumps(val)
+                    values.append(val)
+                
+                placeholders = ', '.join(['?' for _ in columns])
+                col_str = ', '.join(columns)
+                cursor.execute(
+                    f'INSERT INTO requirements ({col_str}) VALUES ({placeholders})',
+                    values
+                )
+    
+    # Update document's currentBranch
+    cursor.execute(
+        'UPDATE documents SET currentBranch = ?, updatedAt = ? WHERE id = ?',
+        (branch_name, datetime.utcnow().isoformat(), document_id)
+    )
+    
+    conn.commit()
+    conn.close()
+    return branch
+
+def merge_branches(document_id, source_branch, target_branch, author):
+    """Merge source branch into target branch using source-wins strategy.
+    
+    Takes the source branch head commit snapshot as the merged result,
+    creates a commit on the target branch with a merge message.
+    Returns a dict with merge details.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Get both branches
+    cursor.execute(
+        'SELECT * FROM branches WHERE documentId = ? AND name = ?',
+        (document_id, source_branch)
+    )
+    source_row = cursor.fetchone()
+    if not source_row:
+        conn.close()
+        return None
+    
+    cursor.execute(
+        'SELECT * FROM branches WHERE documentId = ? AND name = ?',
+        (document_id, target_branch)
+    )
+    target_row = cursor.fetchone()
+    if not target_row:
+        conn.close()
+        return None
+    
+    source = dict(source_row)
+    target = dict(target_row)
+    
+    # Get source head commit snapshot
+    source_head_id = source.get('headCommitId')
+    if not source_head_id:
+        conn.close()
+        return None
+    
+    cursor.execute('SELECT * FROM commits WHERE id = ?', (source_head_id,))
+    source_commit = cursor.fetchone()
+    if not source_commit:
+        conn.close()
+        return None
+    
+    snapshot = source_commit['snapshot']
+    
+    # Create merge commit on target branch
+    merge_commit_id = str(uuid4())
+    now = datetime.utcnow().isoformat()
+    merge_message = f"Merge branch '{source_branch}' into '{target_branch}'"
+    
+    # Find parent commit on target branch
+    target_head_id = target.get('headCommitId')
+    parent_commit_id = target_head_id if target_head_id else None
+    
+    cursor.execute('''
+    INSERT INTO commits (id, documentId, branchName, message, author, createdAt, parentCommitId, snapshot)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (merge_commit_id, document_id, target_branch, merge_message, author, now, parent_commit_id, snapshot))
+    
+    # Update target branch head
+    cursor.execute(
+        'UPDATE branches SET headCommitId = ? WHERE documentId = ? AND name = ?',
+        (merge_commit_id, document_id, target_branch)
+    )
+    
+    # Restore requirements from the merged snapshot
+    parsed_snapshot = json.loads(snapshot)
+    cursor.execute('DELETE FROM requirements WHERE documentId = ?', (document_id,))
+    for req in parsed_snapshot:
+        columns = [
+            'id', 'documentId', 'title', 'description', 'status', 'priority',
+            'level', 'sequenceNumber', 'createdAt', 'updatedAt', 'createdBy',
+            'parentRequirementId', 'changeRequestId', 'changeRequestLink',
+            'testPlan', 'testPlanLink', 'verificationMethod', 'rationale',
+            'tags', 'custom_fields', 'related_requirements'
+        ]
+        values = []
+        for col in columns:
+            val = req.get(col)
+            if col in ('tags', 'custom_fields', 'related_requirements') and val is not None:
+                if isinstance(val, (list, dict)):
+                    val = json.dumps(val)
+            values.append(val)
+        
+        placeholders = ', '.join(['?' for _ in columns])
+        col_str = ', '.join(columns)
+        cursor.execute(
+            f'INSERT INTO requirements ({col_str}) VALUES ({placeholders})',
+            values
+        )
+    
+    conn.commit()
+    conn.close()
+    
+    # Add audit log entry
+    add_audit_log(
+        action='merge',
+        actor_type='human',
+        actor_name=author,
+        resource_type='commit',
+        resource_id=merge_commit_id,
+        change_details=json.dumps({
+            'documentId': document_id,
+            'sourceBranch': source_branch,
+            'targetBranch': target_branch
+        })
+    )
+    
+    return {
+        'mergeCommitId': merge_commit_id,
+        'documentId': document_id,
+        'sourceBranch': source_branch,
+        'targetBranch': target_branch,
+        'message': merge_message,
+        'author': author,
+        'createdAt': now
+    }
+
+def create_tag(document_id, name, commit_id, message, created_by):
+    """Create a tag for a document at a specific commit.
+    
+    Returns the tag dict, or None if a tag with that name already exists
+    for this document.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Check if tag name already exists for this document
+    cursor.execute(
+        'SELECT id FROM tags WHERE documentId = ? AND name = ?',
+        (document_id, name)
+    )
+    if cursor.fetchone():
+        conn.close()
+        return None
+    
+    tag_id = str(uuid4())
+    now = datetime.utcnow().isoformat()
+    
+    cursor.execute('''
+    INSERT INTO tags (id, documentId, name, commitId, createdAt, createdBy, message)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (tag_id, document_id, name, commit_id, now, created_by, message))
+    
+    conn.commit()
+    
+    cursor.execute('SELECT * FROM tags WHERE id = ?', (tag_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row)
+
+def get_tags(document_id):
+    """Get all tags for a document. Returns list of tag dicts."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM tags WHERE documentId = ? ORDER BY createdAt DESC', (document_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def add_audit_log(action, actor_type, actor_name, resource_type, resource_id, change_details=None):
+    """Add an entry to the audit log.
+    
+    Returns the audit log entry dict.
+    """
+    log_id = str(uuid4())
+    now = datetime.utcnow().isoformat()
+    
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+    INSERT INTO audit_log (id, timestamp, action, actorType, actorName, resourceType, resourceId, changeDetails)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (log_id, now, action, actor_type, actor_name, resource_type, resource_id, change_details))
+    
+    conn.commit()
+    
+    cursor.execute('SELECT * FROM audit_log WHERE id = ?', (log_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row)
+
+def get_audit_log(resource_id=None, limit=100):
+    """Get audit log entries, optionally filtered by resource_id.
+    
+    Returns list of audit log dicts ordered by timestamp DESC, limited to `limit` results.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    if resource_id:
+        cursor.execute(
+            'SELECT * FROM audit_log WHERE resourceId = ? ORDER BY timestamp DESC LIMIT ?',
+            (resource_id, limit)
+        )
+    else:
+        cursor.execute(
+            'SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT ?',
+            (limit,)
+        )
+    
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+# --- Traceability Functions ---
+
+def create_traceability_link(source_req_id, target_req_id, target_doc_id, link_type):
+    """Create a traceability link between two requirements"""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    link_id = str(uuid4())
+    now = datetime.utcnow().isoformat()
+
+    cursor.execute('''
+    INSERT INTO traceability (id, sourceRequirementId, targetRequirementId, targetDocumentId, linkType, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ''', (link_id, source_req_id, target_req_id, target_doc_id, link_type, now))
+    conn.commit()
+
+    cursor.execute('SELECT * FROM traceability WHERE id = ?', (link_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row)
+
+def get_traceability_links(req_id):
+    """Get all traceability links where the requirement is source or target"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT * FROM traceability WHERE sourceRequirementId = ? OR targetRequirementId = ?',
+        (req_id, req_id)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def delete_traceability_link(link_id):
+    """Delete a traceability link"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM traceability WHERE id = ?', (link_id,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted

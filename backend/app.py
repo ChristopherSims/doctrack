@@ -3,7 +3,13 @@ from flask_cors import CORS
 from database import init_db, get_all_documents, create_document_db, get_document_db, update_document_db, delete_document_db
 from database import get_all_requirements, create_requirement_db, get_requirement_db, update_requirement_db, delete_requirement_db
 from database import batch_update_requirements, get_all_requirements_flat, get_document_stats
+from database import create_commit, get_commits, get_commit
+from database import create_branch, get_branches, checkout_branch, merge_branches
+from database import create_tag, get_tags
+from database import create_traceability_link, get_traceability_links, delete_traceability_link
+from database import log_audit, get_audit_log
 import os
+import json
 import logging
 
 app = Flask(__name__)
@@ -237,6 +243,239 @@ def global_search_requirements():
     except Exception as e:
         logger.error(f"Error in global requirement search: {e}")
         return jsonify({'success': False, 'error': 'Failed to search requirements'}), 500
+
+# --- Version Control: Commits ---
+
+@app.route('/api/documents/<doc_id>/commits', methods=['POST'])
+def create_commit_route(doc_id):
+    try:
+        data, err = validate_json(required_fields=['message', 'author'])
+        if err:
+            return err
+        document = get_document_db(doc_id)
+        if not document:
+            return jsonify({'success': False, 'error': 'Document not found'}), 404
+        current_branch = document.get('currentBranch', 'main')
+        commit = create_commit(doc_id, current_branch, data['message'], data['author'])
+        log_audit('create_commit', 'document', doc_id, data['author'], {'commitId': commit['id'], 'branch': current_branch})
+        return jsonify({'success': True, 'data': commit}), 201
+    except Exception as e:
+        logger.error(f"Error creating commit for document {doc_id}: {e}")
+        return jsonify({'success': False, 'error': f'Failed to create commit: {str(e)}'}), 500
+
+@app.route('/api/documents/<doc_id>/commits', methods=['GET'])
+def get_commits_route(doc_id):
+    try:
+        branch = request.args.get('branch')
+        commits = get_commits(doc_id, branch)
+        return jsonify({'success': True, 'data': commits})
+    except Exception as e:
+        logger.error(f"Error fetching commits for document {doc_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch commits'}), 500
+
+@app.route('/api/commits/<commit_id>', methods=['GET'])
+def get_commit_route(commit_id):
+    try:
+        commit = get_commit(commit_id)
+        if not commit:
+            return jsonify({'success': False, 'error': 'Commit not found'}), 404
+        return jsonify({'success': True, 'data': commit})
+    except Exception as e:
+        logger.error(f"Error fetching commit {commit_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch commit'}), 500
+
+@app.route('/api/commits/<commit_id1>/<commit_id2>/diff', methods=['GET'])
+def diff_commits(commit_id1, commit_id2):
+    try:
+        commit1 = get_commit(commit_id1)
+        commit2 = get_commit(commit_id2)
+        if not commit1:
+            return jsonify({'success': False, 'error': f'Commit {commit_id1} not found'}), 404
+        if not commit2:
+            return jsonify({'success': False, 'error': f'Commit {commit_id2} not found'}), 404
+
+        snapshot1 = json.loads(commit1.get('snapshot', '[]'))
+        snapshot2 = json.loads(commit2.get('snapshot', '[]'))
+
+        # Build lookup by requirement id
+        reqs1 = {r['id']: r for r in snapshot1}
+        reqs2 = {r['id']: r for r in snapshot2}
+
+        added = [r for rid, r in reqs2.items() if rid not in reqs1]
+        removed = [r for rid, r in reqs1.items() if rid not in reqs2]
+        modified = []
+
+        common_ids = set(reqs1.keys()) & set(reqs2.keys())
+        for rid in common_ids:
+            r1 = reqs1[rid]
+            r2 = reqs2[rid]
+            field_changes = []
+            all_keys = set(r1.keys()) | set(r2.keys())
+            for key in all_keys:
+                if key in ('createdAt', 'updatedAt'):
+                    continue
+                val1 = r1.get(key)
+                val2 = r2.get(key)
+                if val1 != val2:
+                    field_changes.append({
+                        'field': key,
+                        'oldValue': val1,
+                        'newValue': val2
+                    })
+            if field_changes:
+                modified.append({
+                    'id': rid,
+                    'changes': field_changes
+                })
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'added': added,
+                'removed': removed,
+                'modified': modified
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error diffing commits {commit_id1} and {commit_id2}: {e}")
+        return jsonify({'success': False, 'error': f'Failed to diff commits: {str(e)}'}), 500
+
+# --- Version Control: Branches ---
+
+@app.route('/api/documents/<doc_id>/branches', methods=['POST'])
+def create_branch_route(doc_id):
+    try:
+        data, err = validate_json(required_fields=['name', 'createdBy'])
+        if err:
+            return err
+        document = get_document_db(doc_id)
+        if not document:
+            return jsonify({'success': False, 'error': 'Document not found'}), 404
+        branch = create_branch(doc_id, data['name'], data.get('description'), data['createdBy'])
+        if not branch:
+            return jsonify({'success': False, 'error': 'Branch name already exists'}), 409
+        log_audit('create_branch', 'document', doc_id, data['createdBy'], {'branchName': data['name']})
+        return jsonify({'success': True, 'data': branch}), 201
+    except Exception as e:
+        logger.error(f"Error creating branch for document {doc_id}: {e}")
+        return jsonify({'success': False, 'error': f'Failed to create branch: {str(e)}'}), 400
+
+@app.route('/api/documents/<doc_id>/branches', methods=['GET'])
+def get_branches_route(doc_id):
+    try:
+        branches = get_branches(doc_id)
+        return jsonify({'success': True, 'data': branches})
+    except Exception as e:
+        logger.error(f"Error fetching branches for document {doc_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch branches'}), 500
+
+@app.route('/api/documents/<doc_id>/branches/<branch_name>/checkout', methods=['POST'])
+def checkout_branch_route(doc_id, branch_name):
+    try:
+        document = checkout_branch(doc_id, branch_name)
+        if not document:
+            return jsonify({'success': False, 'error': 'Document not found'}), 404
+        log_audit('checkout_branch', 'document', doc_id, None, {'branchName': branch_name})
+        return jsonify({'success': True, 'data': document})
+    except Exception as e:
+        logger.error(f"Error checking out branch {branch_name} for document {doc_id}: {e}")
+        return jsonify({'success': False, 'error': f'Failed to checkout branch: {str(e)}'}), 500
+
+@app.route('/api/documents/<doc_id>/merge', methods=['POST'])
+def merge_branches_route(doc_id):
+    try:
+        data, err = validate_json(required_fields=['sourceBranch', 'targetBranch', 'author'])
+        if err:
+            return err
+        result = merge_branches(doc_id, data['sourceBranch'], data['targetBranch'], data['author'])
+        if not result:
+            return jsonify({'success': False, 'error': 'No commits found on source branch to merge'}), 400
+        log_audit('merge_branches', 'document', doc_id, data['author'],
+                  {'sourceBranch': data['sourceBranch'], 'targetBranch': data['targetBranch'], 'commitId': result['id']})
+        return jsonify({'success': True, 'data': result})
+    except Exception as e:
+        logger.error(f"Error merging branches for document {doc_id}: {e}")
+        return jsonify({'success': False, 'error': f'Failed to merge branches: {str(e)}'}), 500
+
+# --- Version Control: Tags ---
+
+@app.route('/api/documents/<doc_id>/tags', methods=['POST'])
+def create_tag_route(doc_id):
+    try:
+        data, err = validate_json(required_fields=['name', 'commitId', 'createdBy'])
+        if err:
+            return err
+        tag = create_tag(doc_id, data['name'], data['commitId'], data.get('message'), data['createdBy'])
+        if not tag:
+            return jsonify({'success': False, 'error': 'Tag name already exists for this document'}), 409
+        log_audit('create_tag', 'document', doc_id, data['createdBy'], {'tagName': data['name'], 'commitId': data['commitId']})
+        return jsonify({'success': True, 'data': tag}), 201
+    except Exception as e:
+        logger.error(f"Error creating tag for document {doc_id}: {e}")
+        return jsonify({'success': False, 'error': f'Failed to create tag: {str(e)}'}), 400
+
+@app.route('/api/documents/<doc_id>/tags', methods=['GET'])
+def get_tags_route(doc_id):
+    try:
+        tags = get_tags(doc_id)
+        return jsonify({'success': True, 'data': tags})
+    except Exception as e:
+        logger.error(f"Error fetching tags for document {doc_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch tags'}), 500
+
+# --- Traceability ---
+
+@app.route('/api/traceability', methods=['POST'])
+def create_traceability_route():
+    try:
+        data, err = validate_json(required_fields=['sourceRequirementId', 'targetRequirementId', 'targetDocumentId', 'linkType'])
+        if err:
+            return err
+        link = create_traceability_link(
+            data['sourceRequirementId'],
+            data['targetRequirementId'],
+            data['targetDocumentId'],
+            data['linkType']
+        )
+        log_audit('create_traceability_link', 'requirement', data['sourceRequirementId'], None,
+                  {'targetRequirementId': data['targetRequirementId'], 'linkType': data['linkType']})
+        return jsonify({'success': True, 'data': link}), 201
+    except Exception as e:
+        logger.error(f"Error creating traceability link: {e}")
+        return jsonify({'success': False, 'error': f'Failed to create traceability link: {str(e)}'}), 400
+
+@app.route('/api/traceability/<req_id>', methods=['GET'])
+def get_traceability_route(req_id):
+    try:
+        links = get_traceability_links(req_id)
+        return jsonify({'success': True, 'data': links})
+    except Exception as e:
+        logger.error(f"Error fetching traceability links for requirement {req_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch traceability links'}), 500
+
+@app.route('/api/traceability/<link_id>', methods=['DELETE'])
+def delete_traceability_route(link_id):
+    try:
+        deleted = delete_traceability_link(link_id)
+        if not deleted:
+            return jsonify({'success': False, 'error': 'Traceability link not found'}), 404
+        log_audit('delete_traceability_link', 'traceability', link_id)
+        return jsonify({'success': True, 'data': None})
+    except Exception as e:
+        logger.error(f"Error deleting traceability link {link_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to delete traceability link'}), 500
+
+# --- Audit Log ---
+
+@app.route('/api/audit-log', methods=['GET'])
+def audit_log_route():
+    try:
+        resource_id = request.args.get('resource_id')
+        logs = get_audit_log(resource_id)
+        return jsonify({'success': True, 'data': logs})
+    except Exception as e:
+        logger.error(f"Error fetching audit log: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch audit log'}), 500
 
 # --- Health check ---
 
