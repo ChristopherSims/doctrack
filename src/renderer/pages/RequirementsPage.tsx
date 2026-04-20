@@ -107,7 +107,7 @@ const statusColorMap: Record<string, string> = {
   review: 'text-yellow-600 border-yellow-500/40 bg-yellow-500/10',
   approved: 'text-green-600 dark:text-green-400 border-green-500/40 bg-green-500/10',
   implemented: 'text-blue-600 dark:text-blue-400 border-blue-500/40 bg-blue-500/10',
-  verified: 'text-pink-600 dark:text-pink-400 border-pink-500/40 bg-pink-500/10',
+  verified: 'text-white dark:text-white border-white/60 bg-black dark:bg-black',
 };
 
 /** CSS for rendered HTML in the description column */
