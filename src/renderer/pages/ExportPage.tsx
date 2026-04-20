@@ -1,20 +1,16 @@
 import React, { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import {
-  Box,
-  Typography,
-  Paper,
-  Button,
-  Stack,
-  Alert,
-  Checkbox,
-  FormControlLabel,
-} from '@mui/material';
-import {
-  FileDownload as ExportIcon,
-  TableChart as CsvIcon,
-  Description as WordIcon,
-  PictureAsPdf as PdfIcon,
-} from '@mui/icons-material';
+  Download as ExportIcon,
+  Table as CsvIcon,
+  FileText as WordIcon,
+  FileDown as PdfIcon,
+  X as CloseIcon,
+  Loader2,
+} from 'lucide-react';
 import * as API from '../../api/api';
 
 interface ExportPageProps {
@@ -58,96 +54,110 @@ const ExportPage: React.FC<ExportPageProps> = ({ documentId, documentTitle }) =>
   };
 
   const formats = [
-    { value: 'csv', label: 'CSV Spreadsheet', icon: <CsvIcon />, description: 'Export requirements as a comma-separated values file for spreadsheet analysis' },
-    { value: 'word', label: 'Word Document', icon: <WordIcon />, description: 'Export as a formatted .docx document with hierarchy and styling' },
-    { value: 'pdf', label: 'PDF Report', icon: <PdfIcon />, description: 'Export as a professional PDF report with table of contents' },
+    { value: 'csv', label: 'CSV Spreadsheet', icon: <CsvIcon className="h-5 w-5" />, description: 'Export requirements as a comma-separated values file for spreadsheet analysis' },
+    { value: 'word', label: 'Word Document', icon: <WordIcon className="h-5 w-5" />, description: 'Export as a formatted .docx document with hierarchy and styling' },
+    { value: 'pdf', label: 'PDF Report', icon: <PdfIcon className="h-5 w-5" />, description: 'Export as a professional PDF report with table of contents' },
   ];
 
   return (
-    <Box sx={{ p: 3, maxWidth: 800 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
-        <ExportIcon color="primary" />
-        <Typography variant="h5" sx={{ fontWeight: 600 }}>
+    <div className="p-6 max-w-[800px]">
+      <div className="flex items-center gap-2 mb-6">
+        <ExportIcon className="h-6 w-6 text-primary" />
+        <h2 className="text-xl font-semibold">
           Export Document
-        </Typography>
-      </Box>
+        </h2>
+      </div>
 
       {message && (
-        <Alert severity={message.severity} sx={{ mb: 2 }} onClose={() => setMessage(null)}>
-          {message.text}
+        <Alert
+          variant={message.severity === 'error' ? 'destructive' : 'default'}
+          className="mb-4"
+        >
+          <AlertDescription className="flex items-center justify-between w-full">
+            <span>{message.text}</span>
+            <button
+              onClick={() => setMessage(null)}
+              className="ml-2 rounded-md p-0.5 hover:bg-accent"
+            >
+              <CloseIcon className="h-4 w-4" />
+            </button>
+          </AlertDescription>
         </Alert>
       )}
 
-      <Paper sx={{ p: 3, mb: 2 }}>
-        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
+      <div className="rounded-lg border bg-card p-4 mb-4">
+        <h3 className="text-base font-semibold mb-4">
           Export Format
-        </Typography>
-        <Stack spacing={2}>
+        </h3>
+        <div className="flex flex-col gap-4">
           {formats.map((fmt) => (
-            <Box
+            <div
               key={fmt.value}
               onClick={() => setFormat(fmt.value)}
-              sx={{
-                p: 2,
-                border: '2px solid',
-                borderColor: format === fmt.value ? '#1976d2' : '#e0e0e0',
-                borderRadius: 1,
-                cursor: 'pointer',
-                backgroundColor: format === fmt.value ? '#e3f2fd' : 'transparent',
-                '&:hover': { borderColor: '#1976d2' },
-              }}
+              className={`p-4 border-2 rounded cursor-pointer transition-colors ${
+                format === fmt.value
+                  ? 'border-primary bg-primary/5'
+                  : 'border-muted hover:border-primary'
+              }`}
             >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+              <div className="flex items-center gap-2 mb-1">
                 {fmt.icon}
-                <Typography variant="body1" sx={{ fontWeight: format === fmt.value ? 600 : 400 }}>
+                <span className={`text-sm ${format === fmt.value ? 'font-semibold' : 'font-normal'}`}>
                   {fmt.label}
-                </Typography>
-              </Box>
-              <Typography variant="body2" color="textSecondary">
+                </span>
+              </div>
+              <p className="text-sm text-muted-foreground">
                 {fmt.description}
-              </Typography>
-            </Box>
+              </p>
+            </div>
           ))}
-        </Stack>
-      </Paper>
+        </div>
+      </div>
 
-      <Paper sx={{ p: 3, mb: 2 }}>
-        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
+      <div className="rounded-lg border bg-card p-4 mb-4">
+        <h3 className="text-base font-semibold mb-4">
           Options
-        </Typography>
-        <Stack>
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={includeTraceability}
-                onChange={(e) => setIncludeTraceability(e.target.checked)}
-              />
-            }
-            label="Include traceability links"
-          />
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={includeHistory}
-                onChange={(e) => setIncludeHistory(e.target.checked)}
-              />
-            }
-            label="Include version history (Word/PDF only)"
-          />
-        </Stack>
-      </Paper>
+        </h3>
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="includeTraceability"
+              checked={includeTraceability}
+              onCheckedChange={(checked) => setIncludeTraceability(checked === true)}
+            />
+            <Label htmlFor="includeTraceability">Include traceability links</Label>
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="includeHistory"
+              checked={includeHistory}
+              onCheckedChange={(checked) => setIncludeHistory(checked === true)}
+            />
+            <Label htmlFor="includeHistory">Include version history (Word/PDF only)</Label>
+          </div>
+        </div>
+      </div>
 
       <Button
-        variant="contained"
-        size="large"
-        startIcon={<ExportIcon />}
+        variant="default"
+        size="lg"
         onClick={handleExport}
         disabled={exporting}
-        fullWidth
+        className="w-full"
       >
-        {exporting ? 'Exporting...' : `Export as ${format.toUpperCase()}`}
+        {exporting ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Exporting...
+          </>
+        ) : (
+          <>
+            <ExportIcon className="h-4 w-4" />
+            Export as {format.toUpperCase()}
+          </>
+        )}
       </Button>
-    </Box>
+    </div>
   );
 };
 
