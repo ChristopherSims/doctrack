@@ -4,7 +4,7 @@ from database import init_db, get_all_documents, create_document_db, get_documen
 from database import get_all_requirements, create_requirement_db, get_requirement_db, update_requirement_db, delete_requirement_db
 from database import batch_update_requirements, get_all_requirements_flat, get_document_stats
 from database import create_commit, get_commits, get_commit
-from database import create_branch, get_branches, checkout_branch, merge_branches
+from database import create_branch, get_branches, checkout_branch, merge_branches, revert_branch, get_commit_graph
 from database import create_tag, get_tags
 from database import create_traceability_link, get_traceability_links, delete_traceability_link
 from database import add_audit_log, get_audit_log
@@ -416,6 +416,31 @@ def merge_branches_route(doc_id):
     except Exception as e:
         logger.error(f"Error merging branches for document {doc_id}: {e}")
         return jsonify({'success': False, 'error': f'Failed to merge branches: {str(e)}'}), 500
+
+@app.route('/api/documents/<doc_id>/revert', methods=['POST'])
+def revert_branch_route(doc_id):
+    try:
+        data, err = validate_json(required_fields=['branchName', 'commitId', 'author'])
+        if err:
+            return err
+        result = revert_branch(doc_id, data['branchName'], data['commitId'], data['author'])
+        if not result:
+            return jsonify({'success': False, 'error': 'Branch or commit not found'}), 404
+        add_audit_log('revert_branch', 'document', data['author'], 'document', doc_id,
+                  {'branchName': data['branchName'], 'commitId': data['commitId']})
+        return jsonify({'success': True, 'data': result})
+    except Exception as e:
+        logger.error(f"Error reverting branch for document {doc_id}: {e}")
+        return jsonify({'success': False, 'error': f'Failed to revert branch: {str(e)}'}), 500
+
+@app.route('/api/documents/<doc_id>/commit-graph', methods=['GET'])
+def commit_graph_route(doc_id):
+    try:
+        graph = get_commit_graph(doc_id)
+        return jsonify({'success': True, 'data': graph})
+    except Exception as e:
+        logger.error(f"Error fetching commit graph for document {doc_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch commit graph'}), 500
 
 # --- Version Control: Tags ---
 

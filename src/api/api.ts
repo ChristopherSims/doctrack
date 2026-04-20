@@ -229,6 +229,25 @@ export async function mergeBranch(
   return response.json();
 }
 
+export async function revertBranch(
+  docId: string,
+  data: { branchName: string; commitId: string; author: string }
+): Promise<ApiResponse<any>> {
+  const response = await fetch(`${API_BASE_URL}/documents/${docId}/revert`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return response.json();
+}
+
+export async function getCommitGraph(
+  docId: string
+): Promise<ApiResponse<{ nodes: any[]; branches: any[]; edges: any[] }>> {
+  const response = await fetch(`${API_BASE_URL}/documents/${docId}/commit-graph`);
+  return response.json();
+}
+
 // Version Control — Tags
 export async function createTag(
   docId: string,

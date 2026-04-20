@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   GitBranch as BranchIcon,
   Plus as AddIcon,
@@ -6,6 +6,10 @@ import {
   RefreshCw as RefreshIcon,
   CheckCircle2 as CheckIcon,
   X as XIcon,
+  ArrowRight,
+  RotateCcw,
+  Loader2,
+  Network,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,18 +18,21 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from '@/components/ui/dialog';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import * as API from '../../api/api';
 
 interface BranchesPageProps {
@@ -35,28 +42,323 @@ interface BranchesPageProps {
   onBranchChange: (branchName: string) => void;
 }
 
+const BRANCH_COLORS = [
+  '#3b82f6', // blue
+  '#f59e0b', // amber
+  '#10b981', // emerald
+  '#8b5cf6', // violet
+  '#ef4444', // red
+  '#06b6d4', // cyan
+  '#ec4899', // pink
+  '#f97316', // orange
+];
+
+// --- Flow Diagram Component ---
+
+interface FlowNode {
+  id: string;
+  branchName: string;
+  message: string;
+  author: string;
+  createdAt: string;
+  parentCommitId: string | null;
+  isMerge: boolean;
+}
+
+interface FlowEdge {
+  from: string;
+  to: string;
+  type: string;
+}
+
+interface FlowDiagramProps {
+  nodes: FlowNode[];
+  branches: any[];
+  edges: FlowEdge[];
+  currentBranch: string;
+  onRevert?: (commitId: string, branchName: string) => void;
+}
+
+const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, currentBranch, onRevert }) => {
+  // Assign column (x position) to each branch
+  const branchColumnMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    // Main branch always column 0
+    const sorted = [...branches].sort((a, b) => {
+      if (a.name === 'main') return -1;
+      if (b.name === 'main') return 1;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+    sorted.forEach((b, i) => {
+      map[b.name] = i;
+    });
+    return map;
+  }, [branches]);
+
+  // Assign row (y position) to each commit — just chronological order
+  const nodeYMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    nodes.forEach((n, i) => {
+      map[n.id] = i;
+    });
+    return map;
+  }, [nodes]);
+
+  const branchColor = (name: string) => {
+    const col = branchColumnMap[name] ?? 0;
+    return BRANCH_COLORS[col % BRANCH_COLORS.length];
+  };
+
+  if (nodes.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-12 text-muted-foreground">
+        <div className="text-center">
+          <Network className="h-10 w-10 mx-auto mb-2 opacity-40" />
+          <p className="text-sm">No commits yet. Create a branch and make a commit to see the flow diagram.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const COL_WIDTH = 120;
+  const ROW_HEIGHT = 60;
+  const PADDING_X = 60;
+  const PADDING_Y = 30;
+  const NODE_R = 10;
+  const maxCol = Math.max(...Object.values(branchColumnMap), 0);
+  const svgWidth = (maxCol + 1) * COL_WIDTH + PADDING_X * 2;
+  const svgHeight = nodes.length * ROW_HEIGHT + PADDING_Y * 2;
+
+  return (
+    <div className="overflow-auto border rounded-md bg-card">
+      {/* Legend */}
+      <div className="flex items-center gap-3 px-4 py-2 border-b bg-muted/30 flex-wrap">
+        {branches.map((b) => (
+          <div key={b.id} className="flex items-center gap-1.5 text-xs">
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: branchColor(b.name) }} />
+            <span className={b.name === currentBranch ? 'font-semibold' : ''}>{b.name}</span>
+            {b.name === currentBranch && (
+              <Badge variant="secondary" className="text-[0.55rem] h-3.5 px-1">current</Badge>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <svg width={svgWidth} height={svgHeight} className="select-none">
+        {/* Edges */}
+        {edges.map((edge, i) => {
+          const fromNode = nodes.find(n => n.id === edge.from);
+          const toNode = nodes.find(n => n.id === edge.to);
+          if (!fromNode || !toNode) return null;
+
+          const fromX = (branchColumnMap[fromNode.branchName] ?? 0) * COL_WIDTH + PADDING_X;
+          const fromY = (nodeYMap[fromNode.id] ?? 0) * ROW_HEIGHT + PADDING_Y;
+          const toX = (branchColumnMap[toNode.branchName] ?? 0) * COL_WIDTH + PADDING_X;
+          const toY = (nodeYMap[toNode.id] ?? 0) * ROW_HEIGHT + PADDING_Y;
+
+          const isCrossBranch = fromNode.branchName !== toNode.branchName;
+          const color = branchColor(toNode.branchName);
+
+          // Draw path: straight if same column, L-shaped if cross-branch
+          if (isCrossBranch) {
+            const midY = fromY + ROW_HEIGHT / 2;
+            return (
+              <path
+                key={`e${i}`}
+                d={`M ${fromX} ${fromY + NODE_R} L ${fromX} ${midY} L ${toX} ${midY} L ${toX} ${toY - NODE_R}`}
+                fill="none"
+                stroke={color}
+                strokeWidth={2}
+                strokeDasharray="6,3"
+                opacity={0.7}
+              />
+            );
+          }
+          return (
+            <line
+              key={`e${i}`}
+              x1={fromX}
+              y1={fromY + NODE_R}
+              x2={toX}
+              y2={toY - NODE_R}
+              stroke={color}
+              strokeWidth={2}
+              opacity={0.6}
+            />
+          );
+        })}
+
+        {/* Branch vertical lines (background) */}
+        {branches.map((b) => {
+          const col = branchColumnMap[b.name] ?? 0;
+          const x = col * COL_WIDTH + PADDING_X;
+          const branchNodes = nodes.filter(n => n.branchName === b.name);
+          if (branchNodes.length === 0) return null;
+          const minY = (nodeYMap[branchNodes[0].id] ?? 0) * ROW_HEIGHT + PADDING_Y;
+          const maxY = (nodeYMap[branchNodes[branchNodes.length - 1].id] ?? 0) * ROW_HEIGHT + PADDING_Y;
+          return (
+            <line
+              key={`bl-${b.id}`}
+              x1={x}
+              y1={minY - 10}
+              x2={x}
+              y2={maxY + 20}
+              stroke={branchColor(b.name)}
+              strokeWidth={3}
+              opacity={0.15}
+            />
+          );
+        })}
+
+        {/* Nodes */}
+        {nodes.map((node) => {
+          const col = branchColumnMap[node.branchName] ?? 0;
+          const x = col * COL_WIDTH + PADDING_X;
+          const y = (nodeYMap[node.id] ?? 0) * ROW_HEIGHT + PADDING_Y;
+          const color = branchColor(node.branchName);
+          const isCurrentBranchHead = branches.some(
+            b => b.name === currentBranch && b.headCommitId === node.id
+          );
+
+          return (
+            <g key={node.id}>
+              {/* Glow ring for current branch head */}
+              {isCurrentBranchHead && (
+                <circle cx={x} cy={y} r={NODE_R + 4} fill="none" stroke={color} strokeWidth={2} opacity={0.3} />
+              )}
+              {/* Node circle */}
+              <circle
+                cx={x}
+                cy={y}
+                r={NODE_R}
+                fill={node.isMerge ? '#fff' : color}
+                stroke={color}
+                strokeWidth={node.isMerge ? 3 : 2}
+                className="cursor-pointer"
+              />
+              {node.isMerge && (
+                <MergeIcon x={x - 5} y={y - 5} width={10} height={10} color={color} />
+              )}
+              {/* Commit message label */}
+              <text
+                x={x + NODE_R + 6}
+                y={y + 4}
+                className="text-[10px] fill-muted-foreground"
+                fontSize={10}
+              >
+                {node.message.length > 35 ? node.message.slice(0, 35) + '...' : node.message}
+              </text>
+              {/* Author + time */}
+              <text
+                x={x + NODE_R + 6}
+                y={y + 15}
+                className="text-[9px] fill-muted-foreground/60"
+                fontSize={9}
+              >
+                {node.author} · {new Date(node.createdAt).toLocaleDateString()}
+              </text>
+              {/* Revert button on hover */}
+              {onRevert && (
+                <g
+                  className="opacity-0 hover:opacity-100 cursor-pointer"
+                  onClick={() => onRevert(node.id, node.branchName)}
+                >
+                  <rect
+                    x={x - NODE_R - 18}
+                    y={y - 8}
+                    width={16}
+                    height={16}
+                    rx={3}
+                    fill="hsl(var(--destructive))"
+                    opacity={0.8}
+                  />
+                  <RotateCcw x={x - NODE_R - 16} y={y - 6} width={12} height={12} color="#fff" />
+                </g>
+              )}
+            </g>
+          );
+        })}
+
+        {/* Branch name labels at the top */}
+        {branches.map((b) => {
+          const col = branchColumnMap[b.name] ?? 0;
+          const x = col * COL_WIDTH + PADDING_X;
+          return (
+            <text
+              key={`label-${b.id}`}
+              x={x}
+              y={16}
+              textAnchor="middle"
+              className="text-[11px] font-semibold"
+              fill={branchColor(b.name)}
+              fontSize={11}
+            >
+              {b.name}
+            </text>
+          );
+        })}
+      </svg>
+    </div>
+  );
+};
+
+// --- Main Branches Page ---
+
 const BranchesPage: React.FC<BranchesPageProps> = ({ documentId, documentTitle, currentBranch, onBranchChange }) => {
   const [branches, setBranches] = useState<any[]>([]);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  // Create branch dialog
   const [openBranchDialog, setOpenBranchDialog] = useState(false);
-  const [openMergeDialog, setOpenMergeDialog] = useState(false);
   const [newBranchName, setNewBranchName] = useState('');
   const [newBranchDesc, setNewBranchDesc] = useState('');
-  const [sourceBranch, setSourceBranch] = useState('');
-  const [targetBranch, setTargetBranch] = useState('');
-  const [error, setError] = useState('');
+
+  // Merge dropdown state (per branch)
+  const [mergeTargetBranch, setMergeTargetBranch] = useState('');
+  const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
+  const [mergeSourceBranch, setMergeSourceBranch] = useState('');
+  const [merging, setMerging] = useState(false);
+
+  // Revert dialog
+  const [revertDialogOpen, setRevertDialogOpen] = useState(false);
+  const [revertCommitId, setRevertCommitId] = useState('');
+  const [revertBranchName, setRevertBranchName] = useState('');
+  const [reverting, setReverting] = useState(false);
+
+  // Commit graph
+  const [graphData, setGraphData] = useState<{ nodes: any[]; branches: any[]; edges: any[] } | null>(null);
+  const [graphLoading, setGraphLoading] = useState(false);
 
   useEffect(() => {
     loadBranches();
   }, [documentId]);
 
-  const loadBranches = async () => {
+  const loadBranches = useCallback(async () => {
+    setLoading(true);
     try {
       const result = await API.getBranches(documentId);
       if (result.success) setBranches(result.data || []);
     } catch (error) {
       console.error('Failed to load branches:', error);
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [documentId]);
+
+  const loadGraph = useCallback(async () => {
+    setGraphLoading(true);
+    try {
+      const result = await API.getCommitGraph(documentId);
+      if (result.success && result.data) {
+        setGraphData(result.data);
+      }
+    } catch (err) {
+      console.error('Failed to load commit graph:', err);
+    } finally {
+      setGraphLoading(false);
+    }
+  }, [documentId]);
 
   const handleCreateBranch = async () => {
     try {
@@ -90,141 +392,314 @@ const BranchesPage: React.FC<BranchesPageProps> = ({ documentId, documentTitle, 
     }
   };
 
+  const openMergeDialog = (sourceBranch: string) => {
+    setMergeSourceBranch(sourceBranch);
+    setMergeTargetBranch('');
+    setMergeDialogOpen(true);
+  };
+
   const handleMergeBranch = async () => {
+    if (!mergeSourceBranch || !mergeTargetBranch) return;
+    setMerging(true);
     try {
       const result = await API.mergeBranch(documentId, {
-        sourceBranch,
-        targetBranch,
+        sourceBranch: mergeSourceBranch,
+        targetBranch: mergeTargetBranch,
         author: 'system',
       });
       if (result.success) {
-        setOpenMergeDialog(false);
-        setSourceBranch('');
-        setTargetBranch('');
+        setMergeDialogOpen(false);
+        setMergeSourceBranch('');
+        setMergeTargetBranch('');
         loadBranches();
+        if (graphData) loadGraph();
       } else {
         setError(result.error || 'Merge failed');
       }
     } catch (error: any) {
       setError(error.message || 'Merge failed');
+    } finally {
+      setMerging(false);
     }
   };
 
-  return (
-    <div className="p-6 max-w-[900px]">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-2">
-          <BranchIcon className="h-5 w-5 text-primary" />
-          <h2 className="text-xl font-semibold">
-            Branches
-          </h2>
-          <Badge variant="outline">{documentTitle}</Badge>
-        </div>
-        <div className="flex gap-2">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon-sm" onClick={loadBranches}>
-                  <RefreshIcon className="h-4 w-4" />
+  const openRevertDialog = (commitId: string, branchName: string) => {
+    setRevertCommitId(commitId);
+    setRevertBranchName(branchName);
+    setRevertDialogOpen(true);
+  };
+
+  const handleRevert = async () => {
+    if (!revertCommitId || !revertBranchName) return;
+    setReverting(true);
+    try {
+      const result = await API.revertBranch(documentId, {
+        branchName: revertBranchName,
+        commitId: revertCommitId,
+        author: 'system',
+      });
+      if (result.success) {
+        setRevertDialogOpen(false);
+        setRevertCommitId('');
+        setRevertBranchName('');
+        loadBranches();
+        if (graphData) loadGraph();
+      } else {
+        setError(result.error || 'Revert failed');
+      }
+    } catch (error: any) {
+      setError(error.message || 'Revert failed');
+    } finally {
+      setReverting(false);
+    }
+  };
+
+  // Branch row component with GitHub-style merge dropdown
+  const BranchRow: React.FC<{ branch: any; isLast: boolean }> = ({ branch, isLast }) => {
+    const isCurrent = branch.name === currentBranch;
+    const [showMergeSelect, setShowMergeSelect] = useState(false);
+
+    return (
+      <>
+        <div
+          className={`flex items-center gap-3 py-3 px-4 transition-colors ${isCurrent ? 'bg-primary/5' : 'hover:bg-accent/50'}`}
+        >
+          {/* Icon */}
+          <div className="shrink-0 w-6 flex items-center justify-center">
+            {isCurrent ? (
+              <CheckIcon className="h-5 w-5 text-green-500" />
+            ) : (
+              <BranchIcon className="h-4 w-4 text-muted-foreground" />
+            )}
+          </div>
+
+          {/* Branch info */}
+          <div className="flex-1 min-w-0 cursor-pointer" onClick={() => handleCheckoutBranch(branch.name)}>
+            <div className="flex items-center gap-2">
+              <span className={`text-sm ${isCurrent ? 'font-semibold' : 'font-normal'}`}>
+                {branch.name}
+              </span>
+              {isCurrent && (
+                <Badge variant="secondary" className="h-5 text-[0.65rem] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                  current
+                </Badge>
+              )}
+            </div>
+            <span className="text-xs text-muted-foreground">
+              {branch.description || 'No description'} · Created by {branch.createdBy} · {new Date(branch.createdAt).toLocaleDateString()}
+            </span>
+          </div>
+
+          {/* Actions */}
+          {!isCurrent && (
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowMergeSelect(!showMergeSelect);
+                }}
+              >
+                <MergeIcon className="h-3.5 w-3.5" />
+                Merge to...
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCheckoutBranch(branch.name);
+                }}
+              >
+                Switch
+              </Button>
+            </div>
+          )}
+
+          {isCurrent && (
+            <div className="flex items-center gap-1.5 shrink-0">
+              {branches.filter(b => b.name !== currentBranch).length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openMergeDialog(currentBranch);
+                  }}
+                >
+                  <MergeIcon className="h-3.5 w-3.5" />
+                  Merge to...
                 </Button>
-              </TooltipTrigger>
-              <TooltipContent>Refresh</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setOpenMergeDialog(true)}
-          >
-            <MergeIcon className="h-4 w-4" />
-            Merge
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => setOpenBranchDialog(true)}
-          >
-            <AddIcon className="h-4 w-4" />
-            New Branch
-          </Button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Inline merge target picker */}
+        {showMergeSelect && !isCurrent && (
+          <div className="flex items-center gap-2 px-4 py-2 bg-muted/30 border-t">
+            <span className="text-xs text-muted-foreground">Merge</span>
+            <span className="text-xs font-medium">{branch.name}</span>
+            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+            <Select
+              value={mergeTargetBranch}
+              onValueChange={(val) => {
+                setMergeTargetBranch(val);
+              }}
+            >
+              <SelectTrigger className="h-7 w-40 text-xs">
+                <SelectValue placeholder="Select target..." />
+              </SelectTrigger>
+              <SelectContent>
+                {branches
+                  .filter(b => b.name !== branch.name)
+                  .map(b => (
+                    <SelectItem key={b.id} value={b.name}>{b.name}</SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              className="h-7 text-xs"
+              disabled={!mergeTargetBranch}
+              onClick={() => {
+                setMergeSourceBranch(branch.name);
+                setMergeDialogOpen(true);
+                setShowMergeSelect(false);
+              }}
+            >
+              Merge
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setShowMergeSelect(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        )}
+
+        {!isLast && <div className="border-t mx-4" />}
+      </>
+    );
+  };
+
+  return (
+    <div className="p-3 flex flex-col gap-3 h-full">
+      {/* Header */}
+      <div className="rounded-lg border bg-card p-4 shrink-0">
+        <div className="flex items-center gap-2">
+          <BranchIcon className="h-7 w-7 text-primary" />
+          <div className="flex-1">
+            <h1 className="text-xl font-semibold">Branches</h1>
+            <p className="text-sm text-muted-foreground">
+              {documentTitle} — Manage branches, merges, and version history
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { loadBranches(); loadGraph(); }}
+            >
+              <RefreshIcon className="h-4 w-4" />
+              Refresh
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => setOpenBranchDialog(true)}
+            >
+              <AddIcon className="h-4 w-4" />
+              New Branch
+            </Button>
+          </div>
         </div>
       </div>
 
       {/* Error Alert */}
       {error && (
-        <Alert variant="destructive" className="mb-4">
+        <Alert variant="destructive">
           <AlertDescription className="flex items-center justify-between">
             <span>{error}</span>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={() => setError('')}
-            >
+            <Button variant="ghost" size="icon-xs" onClick={() => setError('')}>
               <XIcon className="h-3 w-3" />
             </Button>
           </AlertDescription>
         </Alert>
       )}
 
-      {/* Branch List */}
-      <div className="rounded-lg border bg-card">
-        {branches.length === 0 ? (
-          <div className="p-8 text-center">
-            <BranchIcon className="h-12 w-12 text-muted-foreground/40 mx-auto mb-2" />
-            <p className="text-muted-foreground">No branches yet</p>
+      {/* Tabs: Branch List / Flow Diagram */}
+      <Tabs defaultValue="branches" className="flex-1 min-h-0 flex flex-col">
+        <TabsList className="shrink-0 w-fit">
+          <TabsTrigger value="branches" className="gap-1.5">
+            <BranchIcon className="size-3.5" />
+            Branches
+          </TabsTrigger>
+          <TabsTrigger value="flow" className="gap-1.5" onClick={() => { if (!graphData) loadGraph(); }}>
+            <Network className="size-3.5" />
+            Flow Diagram
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Branches Tab */}
+        <TabsContent value="branches" className="flex-1 min-h-0 mt-0">
+          <div className="rounded-lg border bg-card">
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : branches.length === 0 ? (
+              <div className="p-8 text-center">
+                <BranchIcon className="h-12 w-12 text-muted-foreground/40 mx-auto mb-2" />
+                <p className="text-muted-foreground">No branches yet</p>
+              </div>
+            ) : (
+              <div>
+                {branches.map((branch, index) => (
+                  <BranchRow key={branch.id} branch={branch} isLast={index === branches.length - 1} />
+                ))}
+              </div>
+            )}
           </div>
-        ) : (
-          <div>
-            {branches.map((branch, index) => (
-              <React.Fragment key={branch.id}>
-                <div
-                  className="flex items-center gap-3 py-3 px-4 cursor-pointer hover:bg-accent/50 transition-colors"
-                  onClick={() => handleCheckoutBranch(branch.name)}
-                >
-                  <div className="shrink-0 w-6 flex items-center justify-center">
-                    {branch.name === currentBranch ? (
-                      <CheckIcon className="h-5 w-5 text-green-500" />
-                    ) : (
-                      <BranchIcon className="h-4 w-4 text-muted-foreground" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`text-sm ${
-                          branch.name === currentBranch ? 'font-semibold' : 'font-normal'
-                        }`}
-                      >
-                        {branch.name}
-                      </span>
-                      {branch.name === currentBranch && (
-                        <Badge
-                          variant="secondary"
-                          className="h-5 text-[0.65rem] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                        >
-                          current
-                        </Badge>
-                      )}
-                    </div>
-                    <span className="text-xs text-muted-foreground">
-                      {branch.description || 'No description'} · Created by {branch.createdBy} · {new Date(branch.createdAt).toLocaleDateString()}
-                    </span>
-                  </div>
-                </div>
-                {index < branches.length - 1 && (
-                  <div className="border-t mx-4" />
-                )}
-              </React.Fragment>
-            ))}
-          </div>
-        )}
-      </div>
+        </TabsContent>
+
+        {/* Flow Diagram Tab */}
+        <TabsContent value="flow" className="flex-1 min-h-0 mt-0 overflow-auto">
+          {graphLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : graphData ? (
+            <FlowDiagram
+              nodes={graphData.nodes}
+              branches={graphData.branches}
+              edges={graphData.edges}
+              currentBranch={currentBranch}
+              onRevert={openRevertDialog}
+            />
+          ) : (
+            <div className="flex items-center justify-center py-12 text-muted-foreground">
+              <div className="text-center">
+                <Network className="h-10 w-10 mx-auto mb-2 opacity-40" />
+                <p className="text-sm">Click the Flow Diagram tab to load the commit graph</p>
+              </div>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
 
       {/* Create Branch Dialog */}
       <Dialog open={openBranchDialog} onOpenChange={setOpenBranchDialog}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Create Branch</DialogTitle>
+            <DialogDescription>Create a new branch from the current state of the document.</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
@@ -248,50 +723,84 @@ const BranchesPage: React.FC<BranchesPageProps> = ({ documentId, documentTitle, 
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpenBranchDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleCreateBranch} disabled={!newBranchName}>
-              Create
+            <Button variant="outline" onClick={() => setOpenBranchDialog(false)}>Cancel</Button>
+            <Button onClick={handleCreateBranch} disabled={!newBranchName}>Create</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Merge Confirmation Dialog */}
+      <Dialog open={mergeDialogOpen} onOpenChange={setMergeDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MergeIcon className="h-5 w-5 text-primary" />
+              Confirm Merge
+            </DialogTitle>
+            <DialogDescription>
+              This will merge all changes from the source branch into the target branch using a source-wins strategy.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3 p-3 rounded-md border bg-muted/30">
+              <div className="flex-1 text-center">
+                <p className="text-xs text-muted-foreground mb-1">Source</p>
+                <Badge variant="outline" className="font-mono">{mergeSourceBranch}</Badge>
+              </div>
+              <ArrowRight className="h-5 w-5 text-muted-foreground shrink-0" />
+              <div className="flex-1 text-center">
+                <p className="text-xs text-muted-foreground mb-1">Target</p>
+                <Badge className="font-mono">{mergeTargetBranch}</Badge>
+              </div>
+            </div>
+            {!mergeTargetBranch && (
+              <div>
+                <Label className="mb-1.5">Merge into</Label>
+                <Select value={mergeTargetBranch} onValueChange={setMergeTargetBranch}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select target branch..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {branches
+                      .filter(b => b.name !== mergeSourceBranch)
+                      .map(b => (
+                        <SelectItem key={b.id} value={b.name}>{b.name}</SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMergeDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleMergeBranch} disabled={!mergeSourceBranch || !mergeTargetBranch || merging}>
+              {merging ? <Loader2 className="h-4 w-4 animate-spin" /> : <MergeIcon className="h-4 w-4" />}
+              {merging ? 'Merging...' : 'Merge'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Merge Dialog */}
-      <Dialog open={openMergeDialog} onOpenChange={setOpenMergeDialog}>
-        <DialogContent>
+      {/* Revert Confirmation Dialog */}
+      <Dialog open={revertDialogOpen} onOpenChange={setRevertDialogOpen}>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Merge Branches</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="h-5 w-5 text-destructive" />
+              Revert Branch
+            </DialogTitle>
+            <DialogDescription>
+              This will revert branch <span className="font-mono font-semibold">{revertBranchName}</span> to the state at commit <span className="font-mono text-xs">{revertCommitId.slice(0, 8)}</span>. A new revert commit will be created.
+            </DialogDescription>
           </DialogHeader>
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="source-branch">Source Branch</Label>
-              <Input
-                id="source-branch"
-                value={sourceBranch}
-                onChange={(e) => setSourceBranch(e.target.value)}
-                placeholder="Branch to merge from"
-                required
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="target-branch">Target Branch</Label>
-              <Input
-                id="target-branch"
-                value={targetBranch}
-                onChange={(e) => setTargetBranch(e.target.value)}
-                placeholder="Branch to merge into"
-                required
-              />
-            </div>
+          <div className="rounded-md border p-3 bg-destructive/5 text-sm text-muted-foreground">
+            <p>This action creates a new commit that restores the branch to a previous state. The current state is not deleted — you can always revert again.</p>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpenMergeDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleMergeBranch} disabled={!sourceBranch || !targetBranch}>
-              Merge
+            <Button variant="outline" onClick={() => setRevertDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleRevert} disabled={reverting}>
+              {reverting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+              {reverting ? 'Reverting...' : 'Revert'}
             </Button>
           </DialogFooter>
         </DialogContent>

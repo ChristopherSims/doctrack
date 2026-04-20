@@ -1158,6 +1158,149 @@ def merge_branches(document_id, source_branch, target_branch, author):
         'createdAt': now
     }
 
+def revert_branch(document_id, branch_name, commit_id, author):
+    """Revert a branch to a specific commit by restoring that commit's snapshot.
+    
+    Creates a new revert commit on the branch with the snapshot from the target commit.
+    Returns the revert commit dict, or None if the commit or branch doesn't exist.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Verify the commit exists and belongs to this document
+    cursor.execute('SELECT * FROM commits WHERE id = ? AND documentId = ?', (commit_id, document_id))
+    commit_row = cursor.fetchone()
+    if not commit_row:
+        conn.close()
+        return None
+    
+    # Verify the branch exists
+    cursor.execute('SELECT * FROM branches WHERE documentId = ? AND name = ?', (document_id, branch_name))
+    branch_row = cursor.fetchone()
+    if not branch_row:
+        conn.close()
+        return None
+    
+    snapshot = commit_row['snapshot']
+    
+    # Create revert commit
+    revert_commit_id = str(uuid4())
+    now = datetime.utcnow().isoformat()
+    revert_message = f"Revert branch '{branch_name}' to commit {commit_id[:8]}"
+    
+    # Find current head commit on this branch for parent
+    branch = dict(branch_row)
+    parent_commit_id = branch.get('headCommitId')
+    
+    cursor.execute('''
+    INSERT INTO commits (id, documentId, branchName, message, author, createdAt, parentCommitId, snapshot)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (revert_commit_id, document_id, branch_name, revert_message, author, now, parent_commit_id, snapshot))
+    
+    # Update branch head
+    cursor.execute(
+        'UPDATE branches SET headCommitId = ? WHERE documentId = ? AND name = ?',
+        (revert_commit_id, document_id, branch_name)
+    )
+    
+    # Restore requirements from the reverted snapshot
+    parsed_snapshot = json.loads(snapshot)
+    cursor.execute('DELETE FROM requirements WHERE documentId = ?', (document_id,))
+    for req in parsed_snapshot:
+        columns = [
+            'id', 'documentId', 'title', 'description', 'status', 'priority',
+            'level', 'sequenceNumber', 'createdAt', 'updatedAt', 'createdBy',
+            'parentRequirementId', 'changeRequestId', 'changeRequestLink',
+            'testPlan', 'testPlanLink', 'verificationMethod', 'rationale',
+            'tags', 'custom_fields', 'related_requirements'
+        ]
+        values = []
+        for col in columns:
+            val = req.get(col)
+            if col in ('tags', 'custom_fields', 'related_requirements') and val is not None:
+                if isinstance(val, (list, dict)):
+                    val = json.dumps(val)
+            values.append(val)
+        
+        placeholders = ', '.join(['?' for _ in columns])
+        col_str = ', '.join(columns)
+        cursor.execute(
+            f'INSERT INTO requirements ({col_str}) VALUES ({placeholders})',
+            values
+        )
+    
+    conn.commit()
+    conn.close()
+    
+    add_audit_log(
+        action='revert',
+        actor_type='human',
+        actor_name=author,
+        resource_type='commit',
+        resource_id=revert_commit_id,
+        change_details=json.dumps({
+            'documentId': document_id,
+            'branchName': branch_name,
+            'revertedToCommit': commit_id
+        })
+    )
+    
+    return {
+        'revertCommitId': revert_commit_id,
+        'documentId': document_id,
+        'branchName': branch_name,
+        'revertedToCommit': commit_id,
+        'message': revert_message,
+        'author': author,
+        'createdAt': now
+    }
+
+def get_commit_graph(document_id):
+    """Get all commits and branches for a document formatted as a flow diagram graph.
+    
+    Returns dict with:
+      - nodes: list of commit dicts (id, branchName, message, author, createdAt, parentCommitId, isMerge)
+      - branches: list of branch dicts with headCommitId
+      - edges: list of {from, to, type} for parent->child and merge relationships
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Get all commits
+    cursor.execute(
+        'SELECT id, documentId, branchName, message, author, createdAt, parentCommitId FROM commits WHERE documentId = ? ORDER BY createdAt ASC',
+        (document_id,)
+    )
+    commit_rows = cursor.fetchall()
+    
+    # Get all branches
+    cursor.execute('SELECT id, documentId, name, headCommitId, createdAt, createdBy, description FROM branches WHERE documentId = ? ORDER BY createdAt ASC', (document_id,))
+    branch_rows = cursor.fetchall()
+    
+    conn.close()
+    
+    nodes = []
+    edges = []
+    
+    for row in commit_rows:
+        c = dict(row)
+        # Detect merge commits: parent belongs to a different branch
+        is_merge = False
+        if c.get('parentCommitId'):
+            # Check if parent commit is on a different branch
+            parent = next((n for n in commit_rows if n['id'] == c['parentCommitId']), None)
+            if parent and parent['branchName'] != c['branchName']:
+                is_merge = True
+            edges.append({'from': c['parentCommitId'], 'to': c['id'], 'type': 'parent'})
+        
+        c['isMerge'] = is_merge
+        # Don't include snapshot in graph data — it's huge
+        nodes.append(c)
+    
+    branches = [dict(b) for b in branch_rows]
+    
+    return {'nodes': nodes, 'branches': branches, 'edges': edges}
+
 def create_tag(document_id, name, commit_id, message, created_by):
     """Create a tag for a document at a specific commit.
     
