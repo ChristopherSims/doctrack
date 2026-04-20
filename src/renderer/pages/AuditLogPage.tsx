@@ -27,6 +27,7 @@ import {
   Loader2,
   Info,
   AlertCircle,
+  Download,
 } from 'lucide-react';
 import * as API from '../../api/api';
 import type { AuditLogEntry } from '../../types';
@@ -147,20 +148,80 @@ const AuditLogPage: React.FC<AuditLogPageProps> = ({ documentId }) => {
     setDateTo('');
   };
 
+  const exportCSV = () => {
+    if (filteredEntries.length === 0) return;
+
+    const headers = [
+      'Timestamp',
+      'Action',
+      'Actor Type',
+      'Actor Name',
+      'Resource Type',
+      'Resource ID',
+      'Approval Status',
+      'Approved By',
+      'Reason',
+      'AI Agent Model',
+      'Change Details',
+    ];
+
+    const escapeCSV = (value: string): string => {
+      if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+        return `"${value.replace(/"/g, '""')}"`;
+      }
+      return value;
+    };
+
+    const rows = filteredEntries.map(entry => [
+      escapeCSV(formatTimestamp(entry.timestamp)),
+      escapeCSV(entry.action || ''),
+      escapeCSV(entry.actorType || ''),
+      escapeCSV(entry.actorName || ''),
+      escapeCSV(entry.resourceType || ''),
+      escapeCSV(entry.resourceId || ''),
+      escapeCSV(entry.approvalStatus || ''),
+      escapeCSV(entry.approvedBy || ''),
+      escapeCSV(entry.reason || ''),
+      escapeCSV(entry.aiAgentModel || ''),
+      escapeCSV(entry.changeDetails ? JSON.stringify(entry.changeDetails) : ''),
+    ].join(','));
+
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `audit_log_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-semibold">
           {documentId ? 'Document Audit Log' : 'Audit Log'}
         </h1>
-        <Button
-          variant="outline"
-          onClick={fetchAuditLog}
-          disabled={loading}
-        >
-          <RefreshCw className="h-4 w-4" />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={exportCSV}
+            disabled={loading || filteredEntries.length === 0}
+          >
+            <Download className="h-4 w-4" />
+            Export CSV
+          </Button>
+          <Button
+            variant="outline"
+            onClick={fetchAuditLog}
+            disabled={loading}
+          >
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {documentId && (

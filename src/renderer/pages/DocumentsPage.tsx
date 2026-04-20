@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -132,52 +132,54 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ onSelectDocument }) => {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3">
+        <div className="flex flex-col gap-3">
           {documents.map((doc) => (
             <Card
               key={doc.id}
-              className="cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-lg h-full"
+              className="cursor-pointer transition-all duration-200 hover:shadow-md"
               onClick={() => onSelectDocument(doc.id, doc.title)}
             >
-              <CardContent className="flex flex-1 flex-col">
-                <h2 className="mb-1 text-lg font-semibold">{doc.title}</h2>
-                <p className="mb-4 min-h-[40px] text-sm text-muted-foreground">
-                  {doc.description}
-                </p>
-                <div className="mb-4 flex flex-wrap gap-1.5">
+              <div className="flex items-center gap-6 px-6 py-4">
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-lg font-semibold truncate">{doc.title}</h2>
+                  <p className="text-sm text-muted-foreground truncate">
+                    {doc.description}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
                   <Badge variant="outline">v{doc.version}</Badge>
                   <Badge className={getStatusBadgeClass(doc.status)}>
                     {doc.status}
                   </Badge>
+                  <span className="text-xs text-muted-foreground ml-2">
+                    {doc.owner}
+                  </span>
                 </div>
-                <span className="text-xs text-muted-foreground">
-                  Owner: {doc.owner}
-                </span>
-              </CardContent>
-              <div className="flex gap-1 border-t px-6 py-3">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleOpenDialog(doc);
-                  }}
-                >
-                  <Pencil className="size-4" />
-                  Edit
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-destructive hover:text-destructive"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeleteDocument(doc.id);
-                  }}
-                >
-                  <Trash2 className="size-4" />
-                  Delete
-                </Button>
+                <div className="flex items-center gap-1 shrink-0 border-l pl-4 ml-2">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenDialog(doc);
+                    }}
+                  >
+                    <Pencil className="size-4" />
+                    Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteDocument(doc.id);
+                    }}
+                  >
+                    <Trash2 className="size-4" />
+                    Delete
+                  </Button>
+                </div>
               </div>
             </Card>
           ))}

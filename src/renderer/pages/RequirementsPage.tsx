@@ -26,6 +26,8 @@ import {
   Loader2,
   X,
   Tag,
+  ArrowUpRight,
+  ArrowDownLeft,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -125,106 +127,6 @@ const priorityColorMap: Record<string, string> = {
 };
 
 /* ─── Inline editable cell ─── */
-
-/* ─── Related Requirements Picker (cross-document) ─── */
-function RelatedRequirementsPicker({
-  documentId,
-  documents,
-  selectedIds,
-  onSelect,
-  onRemove,
-}: {
-  documentId: string;
-  documents: any[];
-  selectedIds: string[];
-  onSelect: (reqId: string) => void;
-  onRemove: (reqId: string) => void;
-}) {
-  const [selectedDoc, setSelectedDoc] = useState('');
-  const [docReqs, setDocReqs] = useState<Requirement[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  const loadReqs = async (docId: string) => {
-    setLoading(true);
-    try {
-      const result = await API.getRequirements(docId);
-      if (result.success) {
-        setDocReqs(result.data || []);
-      }
-    } catch {
-      setDocReqs([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="space-y-2">
-      <Select
-        value={selectedDoc}
-        onValueChange={(val) => {
-          setSelectedDoc(val);
-          loadReqs(val);
-        }}
-      >
-        <SelectTrigger className="w-full">
-          <SelectValue placeholder="Select document to pick requirements from..." />
-        </SelectTrigger>
-        <SelectContent>
-          {documents
-            .filter((d) => d.id !== documentId)
-            .map((doc) => (
-              <SelectItem key={doc.id} value={doc.id}>
-                {doc.title}
-              </SelectItem>
-            ))}
-        </SelectContent>
-      </Select>
-      {loading && (
-        <div className="flex items-center gap-2 py-2">
-          <Loader2 className="size-3.5 animate-spin" />
-          <span className="text-xs text-muted-foreground">Loading...</span>
-        </div>
-      )}
-      {!loading && docReqs.length > 0 && (
-        <div className="max-h-48 overflow-y-auto border rounded-md divide-y">
-          {docReqs.map((req) => {
-            const isSelected = selectedIds.includes(req.id);
-            return (
-              <button
-                key={req.id}
-                type="button"
-                className={`w-full px-3 py-1.5 text-sm text-left hover:bg-accent flex items-center gap-2 ${
-                  isSelected ? 'bg-accent/50' : ''
-                }`}
-                onClick={() => {
-                  if (isSelected) {
-                    onRemove(req.id);
-                  } else {
-                    onSelect(req.id);
-                  }
-                }}
-              >
-                <span
-                  className={`w-4 h-4 border rounded-sm flex items-center justify-center flex-shrink-0 ${
-                    isSelected ? 'bg-primary border-primary text-primary-foreground' : ''
-                  }`}
-                >
-                  {isSelected && <span className="text-xs">✓</span>}
-                </span>
-                <span className="font-mono text-xs text-muted-foreground">{req.id}</span>
-                <span className="truncate text-muted-foreground">{req.title}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-      {!loading && selectedDoc && docReqs.length === 0 && (
-        <p className="text-xs text-muted-foreground py-2">No requirements in this document.</p>
-      )}
-    </div>
-  );
-}
 
 function EditableCell({
   value,
@@ -345,6 +247,18 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
   const [selectedDocForTrace, setSelectedDocForTrace] = useState('');
   const [stats, setStats] = useState<{ total: number; byStatus: Record<string, number>; byPriority: Record<string, number> } | null>(null);
 
+  // Traceability links for the edit dialog (incoming/outgoing)
+  const [traceLinks, setTraceLinks] = useState<any[]>([]);
+  const [traceLinksLoading, setTraceLinksLoading] = useState(false);
+  const [traceAddDoc, setTraceAddDoc] = useState('');
+  const [traceAddReqs, setTraceAddReqs] = useState<Requirement[]>([]);
+  const [traceAddLoading, setTraceAddLoading] = useState(false);
+
+  // Incoming link picker state
+  const [traceInDoc, setTraceInDoc] = useState('');
+  const [traceInReqs, setTraceInReqs] = useState<Requirement[]>([]);
+  const [traceInLoading, setTraceInLoading] = useState(false);
+
   // Expand/collapse state
   const [expandedLevels, setExpandedLevels] = useState<Set<string>>(new Set());
 
@@ -406,6 +320,63 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
     }
     return undefined;
   }, [snackbar.open]);
+
+  // Load traceability links for a requirement (used in edit dialog)
+  const loadTraceLinks = useCallback(async (reqId: string) => {
+    setTraceLinksLoading(true);
+    try {
+      const result = await API.getTraceabilityLinks(reqId);
+      if (result.success) {
+        const rawLinks = result.data || [];
+        // Classify direction at load time (same pattern as TraceabilityPage)
+        const links = rawLinks.map((link: any) => ({
+          ...link,
+          direction: link.sourceRequirementId === reqId ? 'outgoing' : 'incoming' as 'outgoing' | 'incoming',
+        }));
+        setTraceLinks(links);
+      } else {
+        setTraceLinks([]);
+      }
+    } catch {
+      setTraceLinks([]);
+    } finally {
+      setTraceLinksLoading(false);
+    }
+  }, []);
+
+  // Load requirements for adding outgoing traceability links
+  const loadReqsForTraceAdd = useCallback(async (docId: string) => {
+    setTraceAddLoading(true);
+    try {
+      const result = await API.getRequirements(docId);
+      if (result.success) {
+        setTraceAddReqs(result.data || []);
+      } else {
+        setTraceAddReqs([]);
+      }
+    } catch {
+      setTraceAddReqs([]);
+    } finally {
+      setTraceAddLoading(false);
+    }
+  }, []);
+
+  // Load requirements for adding incoming traceability links
+  const loadReqsForTraceIn = useCallback(async (docId: string) => {
+    setTraceInLoading(true);
+    try {
+      const result = await API.getRequirements(docId);
+      if (result.success) {
+        setTraceInReqs(result.data || []);
+      } else {
+        setTraceInReqs([]);
+      }
+    } catch {
+      setTraceInReqs([]);
+    } finally {
+      setTraceInLoading(false);
+    }
+  }, []);
 
   // Load edit history when a requirement is selected
   useEffect(() => {
@@ -637,6 +608,8 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
         relatedRequirements: parsedRelated,
         parentRequirementId: req.parentRequirementId || '',
       });
+      // Fetch traceability links for this requirement
+      loadTraceLinks(req.id);
     } else {
       setEditingReq(null);
       setFormData({
@@ -656,6 +629,12 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
         relatedRequirements: [],
         parentRequirementId: '',
       });
+      // Reset traceability state for new requirement
+      setTraceLinks([]);
+      setTraceAddDoc('');
+      setTraceAddReqs([]);
+      setTraceInDoc('');
+      setTraceInReqs([]);
     }
     // Load tag suggestions
     API.getUniqueTags(documentId).then((result) => {
@@ -1722,53 +1701,248 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
                 </Select>
               </div>
 
-              {/* Related Requirements (cross-document) */}
-              <div>
-                <Label className="mb-1.5">Related Requirements</Label>
-                {/* Selected related requirements as chips */}
-                {formData.relatedRequirements.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    {formData.relatedRequirements.map((reqId) => {
-                      return (
-                        <Badge key={reqId} variant="outline" className="gap-1 pr-1 text-xs font-mono">
-                          {reqId}
-                          <button
-                            type="button"
-                            className="ml-0.5 rounded-full hover:bg-foreground/10 p-0.5"
-                            onClick={() => {
-                              setFormData({
-                                ...formData,
-                                relatedRequirements: formData.relatedRequirements.filter((id) => id !== reqId),
-                              });
-                            }}
-                          >
-                            <X className="size-3" />
-                          </button>
-                        </Badge>
-                      );
-                    })}
+              {/* Traceability Links (incoming/outgoing) */}
+              <div className="space-y-3">
+                <Label className="mb-1.5">Traceability Links</Label>
+                {traceLinksLoading && (
+                  <div className="flex items-center gap-2 py-2">
+                    <Loader2 className="size-3.5 animate-spin" />
+                    <span className="text-xs text-muted-foreground">Loading links...</span>
                   </div>
                 )}
-                {/* Document picker + requirement checklist */}
-                <RelatedRequirementsPicker
-                  documentId={documentId}
-                  documents={documents}
-                  selectedIds={formData.relatedRequirements}
-                  onSelect={(reqId) => {
-                    if (!formData.relatedRequirements.includes(reqId)) {
-                      setFormData({
-                        ...formData,
-                        relatedRequirements: [...formData.relatedRequirements, reqId],
-                      });
-                    }
-                  }}
-                  onRemove={(reqId) => {
-                    setFormData({
-                      ...formData,
-                      relatedRequirements: formData.relatedRequirements.filter((id) => id !== reqId),
-                    });
-                  }}
-                />
+                {!traceLinksLoading && traceLinks.length === 0 && editingReq && (
+                  <p className="text-xs text-muted-foreground py-1">No traceability links yet.</p>
+                )}
+                {!traceLinksLoading && traceLinks.length > 0 && (
+                  <div className="space-y-3">
+                    {/* Outgoing links */}
+                    {traceLinks.filter(l => l.direction === 'outgoing').length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1.5">
+                          <ArrowUpRight className="size-3.5" />
+                          Outgoing ({traceLinks.filter(l => l.direction === 'outgoing').length})
+                        </div>
+                        <div className="space-y-1">
+                          {traceLinks
+                            .filter(l => l.direction === 'outgoing')
+                            .map(link => (
+                              <div key={link.id} className="flex items-center gap-2 px-2.5 py-1.5 rounded-md border bg-blue-500/5 text-sm">
+                                <ArrowUpRight className="size-3.5 text-blue-500 flex-shrink-0" />
+                                <span className="font-mono text-xs">{link.targetReqLevel || link.targetRequirementId}</span>
+                                <span className="truncate text-muted-foreground">{link.targetReqTitle || link.targetRequirementId}</span>
+                                {link.targetDocTitle && (
+                                  <span className="text-xs text-muted-foreground/70 ml-auto flex-shrink-0">({link.targetDocTitle})</span>
+                                )}
+                                <button
+                                  type="button"
+                                  className="ml-1 rounded-full hover:bg-destructive/10 p-0.5 flex-shrink-0"
+                                  title="Remove link"
+                                  onClick={async () => {
+                                    const result = await API.deleteTraceabilityLink(link.id);
+                                    if (result.success && editingReq) {
+                                      loadTraceLinks(editingReq.id);
+                                    }
+                                  }}
+                                >
+                                  <X className="size-3 text-destructive" />
+                                </button>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+                    {/* Incoming links */}
+                    {traceLinks.filter(l => l.direction === 'incoming').length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1.5">
+                          <ArrowDownLeft className="size-3.5" />
+                          Incoming ({traceLinks.filter(l => l.direction === 'incoming').length})
+                        </div>
+                        <div className="space-y-1">
+                          {traceLinks
+                            .filter(l => l.direction === 'incoming')
+                            .map(link => (
+                              <div key={link.id} className="flex items-center gap-2 px-2.5 py-1.5 rounded-md border bg-green-500/5 text-sm">
+                                <ArrowDownLeft className="size-3.5 text-green-500 flex-shrink-0" />
+                                <span className="font-mono text-xs">{link.sourceReqLevel || link.sourceRequirementId}</span>
+                                <span className="truncate text-muted-foreground">{link.sourceReqTitle || link.sourceRequirementId}</span>
+                                {link.sourceDocTitle && (
+                                  <span className="text-xs text-muted-foreground/70 ml-auto flex-shrink-0">({link.sourceDocTitle})</span>
+                                )}
+                                <button
+                                  type="button"
+                                  className="ml-1 rounded-full hover:bg-destructive/10 p-0.5 flex-shrink-0"
+                                  title="Remove link"
+                                  onClick={async () => {
+                                    const result = await API.deleteTraceabilityLink(link.id);
+                                    if (result.success && editingReq) {
+                                      loadTraceLinks(editingReq.id);
+                                    }
+                                  }}
+                                >
+                                  <X className="size-3 text-destructive" />
+                                </button>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Add new outgoing link */}
+                {editingReq && (
+                  <div className="border-t pt-3 mt-2 space-y-2">
+                    <div className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                      <ArrowUpRight className="size-3.5" />
+                      Add Outgoing Link
+                    </div>
+                    <Select
+                      value={traceAddDoc}
+                      onValueChange={(val) => {
+                        setTraceAddDoc(val);
+                        setTraceAddReqs([]);
+                        loadReqsForTraceAdd(val);
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select target document..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {documents
+                          .filter((d) => d.id !== documentId)
+                          .map((doc) => (
+                            <SelectItem key={doc.id} value={doc.id}>
+                              {doc.title}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                    {traceAddLoading && (
+                      <div className="flex items-center gap-2 py-1">
+                        <Loader2 className="size-3 animate-spin" />
+                        <span className="text-xs text-muted-foreground">Loading...</span>
+                      </div>
+                    )}
+                    {!traceAddLoading && traceAddReqs.length > 0 && (
+                      <div className="max-h-40 overflow-y-auto border rounded-md divide-y">
+                        {traceAddReqs.map((req) => (
+                          <button
+                            key={req.id}
+                            type="button"
+                            className="w-full px-3 py-1.5 text-sm text-left hover:bg-accent flex items-center gap-2"
+                            onClick={async () => {
+                              if (!editingReq) return;
+                              try {
+                                const result = await API.createTraceabilityLink({
+                                  sourceRequirementId: editingReq.id,
+                                  targetRequirementId: req.id,
+                                  targetDocumentId: traceAddDoc,
+                                  linkType: 'traces',
+                                });
+                                if (result.success) {
+                                  // Reset add-link picker
+                                  setTraceAddDoc('');
+                                  setTraceAddReqs([]);
+                                  loadTraceLinks(editingReq.id);
+                                  setSnackbar({ open: true, message: 'Link created', severity: 'success' });
+                                } else {
+                                  setSnackbar({ open: true, message: result.error || 'Failed to create link', severity: 'error' });
+                                }
+                              } catch {
+                                setSnackbar({ open: true, message: 'Failed to create link', severity: 'error' });
+                              }
+                            }}
+                          >
+                            <ArrowUpRight className="size-3 text-muted-foreground flex-shrink-0" />
+                            <span className="font-mono text-xs text-muted-foreground">{req.id}</span>
+                            <span className="truncate">{req.title}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {!traceAddLoading && traceAddDoc && traceAddReqs.length === 0 && (
+                      <p className="text-xs text-muted-foreground py-1">No requirements in this document.</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Add incoming link */}
+                {editingReq && (
+                  <div className="border-t pt-3 mt-2 space-y-2">
+                    <div className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                      <ArrowDownLeft className="size-3.5" />
+                      Add Incoming Link
+                    </div>
+                    <Select
+                      value={traceInDoc}
+                      onValueChange={(val) => {
+                        setTraceInDoc(val);
+                        setTraceInReqs([]);
+                        loadReqsForTraceIn(val);
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select source document..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {documents
+                          .filter((d) => d.id !== documentId)
+                          .map((doc) => (
+                            <SelectItem key={doc.id} value={doc.id}>
+                              {doc.title}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                    {traceInLoading && (
+                      <div className="flex items-center gap-2 py-1">
+                        <Loader2 className="size-3 animate-spin" />
+                        <span className="text-xs text-muted-foreground">Loading...</span>
+                      </div>
+                    )}
+                    {!traceInLoading && traceInReqs.length > 0 && (
+                      <div className="max-h-40 overflow-y-auto border rounded-md divide-y">
+                        {traceInReqs.map((req) => (
+                          <button
+                            key={req.id}
+                            type="button"
+                            className="w-full px-3 py-1.5 text-sm text-left hover:bg-accent flex items-center gap-2"
+                            onClick={async () => {
+                              if (!editingReq) return;
+                              try {
+                                // Incoming: picked req is SOURCE, current req is TARGET
+                                const result = await API.createTraceabilityLink({
+                                  sourceRequirementId: req.id,
+                                  targetRequirementId: editingReq.id,
+                                  targetDocumentId: documentId,
+                                  linkType: 'traces',
+                                });
+                                if (result.success) {
+                                  setTraceInDoc('');
+                                  setTraceInReqs([]);
+                                  loadTraceLinks(editingReq.id);
+                                  setSnackbar({ open: true, message: 'Link created', severity: 'success' });
+                                } else {
+                                  setSnackbar({ open: true, message: result.error || 'Failed to create link', severity: 'error' });
+                                }
+                              } catch {
+                                setSnackbar({ open: true, message: 'Failed to create link', severity: 'error' });
+                              }
+                            }}
+                          >
+                            <ArrowDownLeft className="size-3 text-muted-foreground flex-shrink-0" />
+                            <span className="font-mono text-xs text-muted-foreground">{req.id}</span>
+                            <span className="truncate">{req.title}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {!traceInLoading && traceInDoc && traceInReqs.length === 0 && (
+                      <p className="text-xs text-muted-foreground py-1">No requirements in this document.</p>
+                    )}
+                  </div>
+                )}
               </div>
             </TabsContent>
           </Tabs>
