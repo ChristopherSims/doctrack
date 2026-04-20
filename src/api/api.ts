@@ -141,6 +141,14 @@ export async function getDocumentStats(
   return response.json();
 }
 
+// Unique Tags API
+export async function getUniqueTags(
+  docId: string
+): Promise<ApiResponse<string[]>> {
+  const response = await fetch(`${API_BASE_URL}/documents/${docId}/unique-tags`);
+  return response.json();
+}
+
 // Version Control — Commits
 export async function createCommit(
   docId: string,

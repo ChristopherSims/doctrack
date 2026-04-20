@@ -25,6 +25,7 @@ import {
   Download,
   Loader2,
   X,
+  Tag,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -61,10 +62,12 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 import type { Requirement, EditHistoryEntry } from '../../types/index';
 import * as API from '../../api/api';
 import RichTextEditor from '@/components/RichTextEditor';
+import TagInput from '@/components/TagInput';
 import {
   getLevelDepth,
   getParentLevels,
@@ -121,6 +124,107 @@ const priorityColorMap: Record<string, string> = {
 };
 
 /* ─── Inline editable cell ─── */
+
+/* ─── Related Requirements Picker (cross-document) ─── */
+function RelatedRequirementsPicker({
+  documentId,
+  documents,
+  selectedIds,
+  onSelect,
+  onRemove,
+}: {
+  documentId: string;
+  documents: any[];
+  selectedIds: string[];
+  onSelect: (reqId: string) => void;
+  onRemove: (reqId: string) => void;
+}) {
+  const [selectedDoc, setSelectedDoc] = useState('');
+  const [docReqs, setDocReqs] = useState<Requirement[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const loadReqs = async (docId: string) => {
+    setLoading(true);
+    try {
+      const result = await API.getRequirements(docId);
+      if (result.success) {
+        setDocReqs(result.data || []);
+      }
+    } catch {
+      setDocReqs([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <Select
+        value={selectedDoc}
+        onValueChange={(val) => {
+          setSelectedDoc(val);
+          loadReqs(val);
+        }}
+      >
+        <SelectTrigger className="w-full">
+          <SelectValue placeholder="Select document to pick requirements from..." />
+        </SelectTrigger>
+        <SelectContent>
+          {documents
+            .filter((d) => d.id !== documentId)
+            .map((doc) => (
+              <SelectItem key={doc.id} value={doc.id}>
+                {doc.title}
+              </SelectItem>
+            ))}
+        </SelectContent>
+      </Select>
+      {loading && (
+        <div className="flex items-center gap-2 py-2">
+          <Loader2 className="size-3.5 animate-spin" />
+          <span className="text-xs text-muted-foreground">Loading...</span>
+        </div>
+      )}
+      {!loading && docReqs.length > 0 && (
+        <div className="max-h-48 overflow-y-auto border rounded-md divide-y">
+          {docReqs.map((req) => {
+            const isSelected = selectedIds.includes(req.id);
+            return (
+              <button
+                key={req.id}
+                type="button"
+                className={`w-full px-3 py-1.5 text-sm text-left hover:bg-accent flex items-center gap-2 ${
+                  isSelected ? 'bg-accent/50' : ''
+                }`}
+                onClick={() => {
+                  if (isSelected) {
+                    onRemove(req.id);
+                  } else {
+                    onSelect(req.id);
+                  }
+                }}
+              >
+                <span
+                  className={`w-4 h-4 border rounded-sm flex items-center justify-center flex-shrink-0 ${
+                    isSelected ? 'bg-primary border-primary text-primary-foreground' : ''
+                  }`}
+                >
+                  {isSelected && <span className="text-xs">✓</span>}
+                </span>
+                <span className="font-mono text-xs text-muted-foreground">{req.level}</span>
+                <span className="truncate">{req.title}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {!loading && selectedDoc && docReqs.length === 0 && (
+        <p className="text-xs text-muted-foreground py-2">No requirements in this document.</p>
+      )}
+    </div>
+  );
+}
+
 function EditableCell({
   value,
   rowId,
@@ -251,6 +355,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
     changeRequestLink: false,
     testPlanLink: false,
     rationale: false,
+    tags: false,
   });
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 50 });
 
@@ -263,6 +368,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
   const [formData, setFormData] = useState({
     title: '',
     description: '',
+    status: 'draft' as string,
     priority: 'medium' as string,
     changeRequestId: '',
     changeRequestLink: '',
@@ -271,7 +377,14 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
     verificationMethod: 'manual' as string,
     level: '1',
     rationale: '',
+    tags: [] as string[],
+    customFields: {} as Record<string, string>,
+    relatedRequirements: [] as string[],
+    parentRequirementId: '' as string,
   });
+
+  // Tag suggestions for autocomplete
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
 
   useEffect(() => {
     loadData();
@@ -421,6 +534,10 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
             testPlanLink: row.testPlanLink || '',
             verificationMethod: row.verificationMethod || '',
             rationale: row.rationale || '',
+            tags: row.tags || [],
+            custom_fields: row.customFields || {},
+            related_requirements: row.relatedRequirements || [],
+            parentRequirementId: row.parentRequirementId || '',
           });
         }
       }
@@ -445,9 +562,42 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
   const handleOpenDialog = (req?: Requirement) => {
     if (req) {
       setEditingReq(req);
+      // Parse tags defensively
+      let parsedTags: string[] = [];
+      try {
+        if (Array.isArray(req.tags)) {
+          parsedTags = req.tags;
+        } else if (typeof req.tags === 'string') {
+          parsedTags = JSON.parse(req.tags);
+        }
+      } catch { parsedTags = []; }
+
+      // Parse customFields defensively
+      let parsedCustomFields: Record<string, string> = {};
+      try {
+        const cf = (req as any).customFields || (req as any).custom_fields;
+        if (cf && typeof cf === 'object' && !Array.isArray(cf)) {
+          parsedCustomFields = cf;
+        } else if (typeof cf === 'string') {
+          parsedCustomFields = JSON.parse(cf);
+        }
+      } catch { parsedCustomFields = {}; }
+
+      // Parse relatedRequirements defensively
+      let parsedRelated: string[] = [];
+      try {
+        const rr = (req as any).relatedRequirements || (req as any).related_requirements;
+        if (Array.isArray(rr)) {
+          parsedRelated = rr;
+        } else if (typeof rr === 'string') {
+          parsedRelated = JSON.parse(rr);
+        }
+      } catch { parsedRelated = []; }
+
       setFormData({
         title: req.title,
         description: req.description,
+        status: req.status || 'draft',
         priority: req.priority,
         changeRequestId: req.changeRequestId || '',
         changeRequestLink: req.changeRequestLink || '',
@@ -456,12 +606,17 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
         verificationMethod: req.verificationMethod || 'manual',
         level: req.level || '1',
         rationale: req.rationale || '',
+        tags: parsedTags,
+        customFields: parsedCustomFields,
+        relatedRequirements: parsedRelated,
+        parentRequirementId: req.parentRequirementId || '',
       });
     } else {
       setEditingReq(null);
       setFormData({
         title: '',
         description: '',
+        status: 'draft',
         priority: 'medium',
         changeRequestId: '',
         changeRequestLink: '',
@@ -470,8 +625,18 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
         verificationMethod: 'manual',
         level: '1',
         rationale: '',
+        tags: [],
+        customFields: {},
+        relatedRequirements: [],
+        parentRequirementId: '',
       });
     }
+    // Load tag suggestions
+    API.getUniqueTags(documentId).then((result) => {
+      if (result.success) {
+        setTagSuggestions(result.data || []);
+      }
+    });
     setOpenDialog(true);
   };
 
@@ -482,10 +647,18 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
 
   const handleSaveRequirement = async () => {
     try {
+      const payload = {
+        ...formData,
+        tags: formData.tags,
+        custom_fields: formData.customFields,
+        related_requirements: formData.relatedRequirements,
+      };
+      // Remove camelCase versions (backend expects snake_case for JSON fields)
+      delete (payload as any).customFields;
+      delete (payload as any).relatedRequirements;
+
       if (editingReq) {
-        const result = await API.updateRequirement(editingReq.id, {
-          ...formData,
-        });
+        const result = await API.updateRequirement(editingReq.id, payload);
         if (result.success) {
           setSnackbar({ open: true, message: 'Requirement updated', severity: 'success' });
           await loadData();
@@ -493,7 +666,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
       } else {
         const result = await API.createRequirement({
           documentId,
-          ...formData,
+          ...payload,
           createdBy: 'system',
         });
         if (result.success) {
@@ -545,7 +718,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
 
   /* ─── CSV Export ─── */
   const handleExportCSV = useCallback(() => {
-    const headers = ['Level', 'ID', 'Title', 'Description', 'Status', 'Priority', 'CR ID', 'CR Link', 'Test Plan', 'Verification', 'Rationale'];
+    const headers = ['Level', 'ID', 'Title', 'Description', 'Status', 'Priority', 'CR ID', 'CR Link', 'Test Plan', 'Test Plan Link', 'Verification', 'Rationale', 'Tags'];
     const rows = visibleRequirements.map(r => [
       r.level || '1',
       r.id,
@@ -556,8 +729,10 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
       r.changeRequestId || '',
       r.changeRequestLink || '',
       `"${(r.testPlan || '').replace(/"/g, '""')}"`,
+      r.testPlanLink || '',
       r.verificationMethod || '',
       `"${(r.rationale || '').replace(/"/g, '""')}"`,
+      `"${(Array.isArray(r.tags) ? r.tags.join(', ') : '').replace(/"/g, '""')}"`,
     ]);
     const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -759,6 +934,26 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
       ),
     },
     {
+      accessorKey: 'testPlanLink',
+      header: 'Test Plan Link',
+      size: 160,
+      cell: ({ getValue }) => {
+        const val = getValue() as string;
+        return val ? (
+          <a
+            href={val}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-primary hover:underline truncate block max-w-[140px]"
+          >
+            {val.length > 20 ? val.substring(0, 20) + '...' : val}
+          </a>
+        ) : (
+          <span className="text-muted-foreground text-xs">{'\u2014'}</span>
+        );
+      },
+    },
+    {
       accessorKey: 'verificationMethod',
       header: 'Verification',
       size: 150,
@@ -791,6 +986,27 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
           )}
         />
       ),
+    },
+    {
+      accessorKey: 'tags',
+      header: 'Tags',
+      size: 180,
+      cell: ({ row }) => {
+        const tags = row.original.tags;
+        const parsed = Array.isArray(tags) ? tags : [];
+        if (parsed.length === 0) {
+          return <span className="text-xs text-muted-foreground">{'\u2014'}</span>;
+        }
+        return (
+          <div className="flex flex-wrap gap-0.5">
+            {parsed.map((tag: string) => (
+              <Badge key={tag} variant="secondary" className="text-[10px] px-1 py-0 h-4">
+                {tag}
+              </Badge>
+            ))}
+          </div>
+        );
+      },
     },
     {
       id: 'actions',
@@ -1200,123 +1416,329 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
 
       {/* ─── Add/Edit Dialog ─── */}
       <Dialog open={openDialog} onOpenChange={setOpenDialog}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingReq ? 'Edit Requirement' : 'New Requirement'}</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-4 py-2">
-            <div className="flex gap-3">
-              <div className="w-40">
-                <Label className="mb-1.5">Level</Label>
+          <Tabs defaultValue="basic" className="w-full">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="basic">Basic</TabsTrigger>
+              <TabsTrigger value="details">Details</TabsTrigger>
+              <TabsTrigger value="relations">Relations</TabsTrigger>
+            </TabsList>
+
+            {/* ─── Basic Tab ─── */}
+            <TabsContent value="basic" className="grid gap-4 py-2">
+              <div className="flex gap-3">
+                <div className="w-40">
+                  <Label className="mb-1.5">Level</Label>
+                  <Select
+                    value={formData.level}
+                    onValueChange={(val) => setFormData({ ...formData, level: val })}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Level" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {levelOptions.map((opt) => {
+                        const depth = getLevelDepth(opt);
+                        return (
+                          <SelectItem key={opt} value={opt}>
+                            <span className="font-mono" style={{ paddingLeft: `${depth * 12}px` }}>
+                              {opt}
+                            </span>
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex-1">
+                  <Label className="mb-1.5">Title</Label>
+                  <Input
+                    value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    required
+                    autoFocus
+                  />
+                </div>
+              </div>
+              <div>
+                <Label className="mb-1.5">Description</Label>
+                <RichTextEditor
+                  value={formData.description}
+                  onChange={(html) => setFormData({ ...formData, description: html })}
+                  placeholder="Enter requirement description..."
+                />
+              </div>
+              <div className="flex gap-3">
+                <div className="w-40">
+                  <Label className="mb-1.5">Status</Label>
+                  <Select
+                    value={formData.status}
+                    onValueChange={(val) => setFormData({ ...formData, status: val })}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATUS_OPTIONS.map(opt => (
+                        <SelectItem key={opt} value={opt}>
+                          <span className="capitalize">{opt}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="w-40">
+                  <Label className="mb-1.5">Priority</Label>
+                  <Select
+                    value={formData.priority}
+                    onValueChange={(val) => setFormData({ ...formData, priority: val })}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Priority" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low">Low</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="high">High</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex-1">
+                  <Label className="mb-1.5">Verification Method</Label>
+                  <Select
+                    value={formData.verificationMethod}
+                    onValueChange={(val) => setFormData({ ...formData, verificationMethod: val })}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Verification Method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {VERIFICATION_OPTIONS.map(opt => (
+                        <SelectItem key={opt} value={opt}>{opt.replace(/_/g, ' ')}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </TabsContent>
+
+            {/* ─── Details Tab ─── */}
+            <TabsContent value="details" className="grid gap-4 py-2">
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <Label className="mb-1.5">Change Request ID</Label>
+                  <Input
+                    value={formData.changeRequestId}
+                    onChange={(e) => setFormData({ ...formData, changeRequestId: e.target.value })}
+                    placeholder="e.g., CR-2024-001"
+                  />
+                </div>
+                <div className="flex-1">
+                  <Label className="mb-1.5">CR Link</Label>
+                  <Input
+                    value={formData.changeRequestLink}
+                    onChange={(e) => setFormData({ ...formData, changeRequestLink: e.target.value })}
+                    placeholder="URL to CR document"
+                  />
+                </div>
+              </div>
+              <div>
+                <Label className="mb-1.5">Test Plan</Label>
+                <Textarea
+                  value={formData.testPlan}
+                  onChange={(e) => setFormData({ ...formData, testPlan: e.target.value })}
+                  rows={2}
+                  placeholder="Describe test approach or reference test document"
+                />
+              </div>
+              <div>
+                <Label className="mb-1.5">Test Plan Link</Label>
+                <Input
+                  value={formData.testPlanLink}
+                  onChange={(e) => setFormData({ ...formData, testPlanLink: e.target.value })}
+                  placeholder="URL to test plan document"
+                  type="url"
+                />
+              </div>
+              <div>
+                <Label className="mb-1.5">Rationale</Label>
+                <Textarea
+                  value={formData.rationale}
+                  onChange={(e) => setFormData({ ...formData, rationale: e.target.value })}
+                  rows={2}
+                  placeholder="Why this requirement exists"
+                />
+              </div>
+              <div>
+                <Label className="mb-1.5 flex items-center gap-1.5">
+                  <Tag className="size-3.5" />
+                  Tags
+                </Label>
+                <TagInput
+                  tags={formData.tags}
+                  suggestions={tagSuggestions}
+                  onChange={(tags) => setFormData({ ...formData, tags })}
+                  placeholder="Type and press Enter to add tags..."
+                />
+              </div>
+              {/* Custom Fields */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <Label>Custom Fields</Label>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => {
+                      const key = `field_${Object.keys(formData.customFields).length + 1}`;
+                      setFormData({
+                        ...formData,
+                        customFields: { ...formData.customFields, [key]: '' },
+                      });
+                    }}
+                  >
+                    <Plus className="size-3 mr-1" />
+                    Add Field
+                  </Button>
+                </div>
+                {Object.keys(formData.customFields).length === 0 ? (
+                  <p className="text-xs text-muted-foreground py-2">No custom fields. Click "Add Field" to create one.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {Object.entries(formData.customFields).map(([key, value]) => (
+                      <div key={key} className="flex gap-2 items-center">
+                        <Input
+                          value={key}
+                          onChange={(e) => {
+                            const newFields = { ...formData.customFields };
+                            delete newFields[key];
+                            newFields[e.target.value] = value;
+                            setFormData({ ...formData, customFields: newFields });
+                          }}
+                          className="w-1/3"
+                          placeholder="Field name"
+                        />
+                        <Input
+                          value={value}
+                          onChange={(e) => {
+                            setFormData({
+                              ...formData,
+                              customFields: { ...formData.customFields, [key]: e.target.value },
+                            });
+                          }}
+                          className="flex-1"
+                          placeholder="Value"
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => {
+                            const newFields = { ...formData.customFields };
+                            delete newFields[key];
+                            setFormData({ ...formData, customFields: newFields });
+                          }}
+                        >
+                          <X className="size-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+
+            {/* ─── Relations Tab ─── */}
+            <TabsContent value="relations" className="grid gap-4 py-2">
+              {/* Parent Requirement Picker */}
+              <div>
+                <Label className="mb-1.5">Parent Requirement</Label>
                 <Select
-                  value={formData.level}
-                  onValueChange={(val) => setFormData({ ...formData, level: val })}
+                  value={formData.parentRequirementId || '__none__'}
+                  onValueChange={(val) => setFormData({ ...formData, parentRequirementId: val === '__none__' ? '' : val })}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Level" />
+                    <SelectValue placeholder="None (root level)" />
                   </SelectTrigger>
                   <SelectContent>
-                    {levelOptions.map((opt) => {
-                      const depth = getLevelDepth(opt);
-                      return (
-                        <SelectItem key={opt} value={opt}>
-                          <span className="font-mono" style={{ paddingLeft: `${depth * 12}px` }}>
-                            {opt}
-                          </span>
+                    <SelectItem value="__none__">None (root level)</SelectItem>
+                    {requirements
+                      .filter((r) => {
+                        // Filter: valid parents only
+                        // A parent's level must be a prefix of the current requirement's level
+                        const currentLevel = formData.level;
+                        if (!currentLevel || currentLevel === '1') return false; // root level has no parent
+                        const parts = currentLevel.split('.');
+                        // Valid parents: levels with one fewer dot segment (e.g., for "1.2.3", valid parents are "1" and "1.2")
+                        const validParentLevels: string[] = [];
+                        for (let i = 1; i < parts.length; i++) {
+                          validParentLevels.push(parts.slice(0, i).join('.'));
+                        }
+                        return validParentLevels.includes(r.level || '1');
+                      })
+                      .map((r) => (
+                        <SelectItem key={r.id} value={r.id}>
+                          {r.level} - {r.title}
                         </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Related Requirements (cross-document) */}
+              <div>
+                <Label className="mb-1.5">Related Requirements</Label>
+                {/* Selected related requirements as chips */}
+                {formData.relatedRequirements.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {formData.relatedRequirements.map((reqId) => {
+                      // Try to find the requirement in loaded data
+                      const foundReq = requirements.find((r) => r.id === reqId);
+                      return (
+                        <Badge key={reqId} variant="outline" className="gap-1 pr-1 text-xs">
+                          {foundReq ? `${foundReq.level} - ${foundReq.title}` : reqId}
+                          <button
+                            type="button"
+                            className="ml-0.5 rounded-full hover:bg-foreground/10 p-0.5"
+                            onClick={() => {
+                              setFormData({
+                                ...formData,
+                                relatedRequirements: formData.relatedRequirements.filter((id) => id !== reqId),
+                              });
+                            }}
+                          >
+                            <X className="size-3" />
+                          </button>
+                        </Badge>
                       );
                     })}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex-1">
-                <Label className="mb-1.5">Title</Label>
-                <Input
-                  value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                  required
+                  </div>
+                )}
+                {/* Document picker + requirement checklist */}
+                <RelatedRequirementsPicker
+                  documentId={documentId}
+                  documents={documents}
+                  selectedIds={formData.relatedRequirements}
+                  onSelect={(reqId) => {
+                    if (!formData.relatedRequirements.includes(reqId)) {
+                      setFormData({
+                        ...formData,
+                        relatedRequirements: [...formData.relatedRequirements, reqId],
+                      });
+                    }
+                  }}
+                  onRemove={(reqId) => {
+                    setFormData({
+                      ...formData,
+                      relatedRequirements: formData.relatedRequirements.filter((id) => id !== reqId),
+                    });
+                  }}
                 />
               </div>
-            </div>
-            <div>
-              <Label className="mb-1.5">Description</Label>
-              <RichTextEditor
-                value={formData.description}
-                onChange={(html) => setFormData({ ...formData, description: html })}
-                placeholder="Enter requirement description..."
-              />
-            </div>
-            <div className="flex gap-3">
-              <div className="w-40">
-                <Label className="mb-1.5">Priority</Label>
-                <Select
-                  value={formData.priority}
-                  onValueChange={(val) => setFormData({ ...formData, priority: val })}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Priority" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex-1">
-                <Label className="mb-1.5">Verification Method</Label>
-                <Select
-                  value={formData.verificationMethod}
-                  onValueChange={(val) => setFormData({ ...formData, verificationMethod: val })}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Verification Method" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {VERIFICATION_OPTIONS.map(opt => (
-                      <SelectItem key={opt} value={opt}>{opt.replace(/_/g, ' ')}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <div className="flex-1">
-                <Label className="mb-1.5">Change Request ID</Label>
-                <Input
-                  value={formData.changeRequestId}
-                  onChange={(e) => setFormData({ ...formData, changeRequestId: e.target.value })}
-                  placeholder="e.g., CR-2024-001"
-                />
-              </div>
-              <div className="flex-1">
-                <Label className="mb-1.5">CR Link</Label>
-                <Input
-                  value={formData.changeRequestLink}
-                  onChange={(e) => setFormData({ ...formData, changeRequestLink: e.target.value })}
-                  placeholder="URL to CR document"
-                />
-              </div>
-            </div>
-            <div>
-              <Label className="mb-1.5">Test Plan</Label>
-              <Textarea
-                value={formData.testPlan}
-                onChange={(e) => setFormData({ ...formData, testPlan: e.target.value })}
-                rows={2}
-                placeholder="Describe test approach or reference test document"
-              />
-            </div>
-            <div>
-              <Label className="mb-1.5">Rationale</Label>
-              <Textarea
-                value={formData.rationale}
-                onChange={(e) => setFormData({ ...formData, rationale: e.target.value })}
-                rows={2}
-                placeholder="Why this requirement exists"
-              />
-            </div>
-          </div>
+            </TabsContent>
+          </Tabs>
           <DialogFooter>
             <Button variant="outline" onClick={handleCloseDialog}>Cancel</Button>
             <Button onClick={handleSaveRequirement}>Save</Button>

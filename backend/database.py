@@ -714,6 +714,29 @@ def get_document_stats(doc_id):
     conn.close()
     return stats
 
+def get_unique_tags(doc_id):
+    """Get all distinct tags used across requirements in a document.
+    Tags are stored as JSON arrays in the 'tags' column.
+    Returns a sorted list of unique tag strings.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT tags FROM requirements WHERE documentId = ?', (doc_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    
+    all_tags = set()
+    for row in rows:
+        try:
+            tags = json.loads(row[0]) if row[0] else []
+            if isinstance(tags, list):
+                for t in tags:
+                    if isinstance(t, str) and t.strip():
+                        all_tags.add(t.strip())
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return sorted(all_tags)
+
 def delete_requirement_db(req_id):
     """Delete a requirement"""
     conn = get_connection()

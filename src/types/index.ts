@@ -59,10 +59,20 @@ export interface CreateRequirementPayload {
   documentId: string;
   title: string;
   description: string;
+  status?: string;
   priority: 'high' | 'medium' | 'low';
+  level?: string;
+  rationale?: string;
   changeRequestId?: string;
+  changeRequestLink?: string;
   testPlan?: string;
+  testPlanLink?: string;
   verificationMethod?: string;
+  parentRequirementId?: string;
+  tags?: string[];
+  customFields?: Record<string, string>;
+  relatedRequirements?: string[];
+  createdBy?: string;
 }
 
 export interface UpdateRequirementPayload {
@@ -71,10 +81,17 @@ export interface UpdateRequirementPayload {
   description?: string;
   status?: string;
   priority?: string;
+  level?: string;
+  rationale?: string;
   changeRequestId?: string;
+  changeRequestLink?: string;
   testPlan?: string;
   testPlanLink?: string;
   verificationMethod?: string;
+  parentRequirementId?: string;
+  tags?: string[];
+  customFields?: Record<string, string>;
+  relatedRequirements?: string[];
 }
 
 export interface Commit {

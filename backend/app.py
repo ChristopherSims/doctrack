@@ -9,6 +9,7 @@ from database import create_tag, get_tags
 from database import create_traceability_link, get_traceability_links, delete_traceability_link
 from database import add_audit_log, get_audit_log
 from database import add_edit_history, get_edit_history, get_edit_history_for_document
+from database import get_unique_tags
 from export import export_csv, export_word, export_pdf
 import os
 import json
@@ -104,6 +105,18 @@ def delete_document(doc_id):
         return jsonify({'success': False, 'error': 'Failed to delete document'}), 500
 
 # --- Document Stats ---
+
+@app.route('/api/documents/<doc_id>/unique-tags', methods=['GET'])
+def unique_tags(doc_id):
+    try:
+        document = get_document_db(doc_id)
+        if not document:
+            return jsonify({'success': False, 'error': 'Document not found'}), 404
+        tags = get_unique_tags(doc_id)
+        return jsonify({'success': True, 'data': tags})
+    except Exception as e:
+        logger.error(f"Error fetching unique tags for document {doc_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch unique tags'}), 500
 
 @app.route('/api/documents/<doc_id>/stats', methods=['GET'])
 def document_stats(doc_id):
