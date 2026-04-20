@@ -283,9 +283,11 @@ def init_db():
                     cursor.execute('UPDATE requirements SET related_requirements = ? WHERE rowid = ?', (json.dumps(updated), rr[0]))
                 except Exception:
                     pass
-            # traceability_links
-            cursor.execute('UPDATE traceability_links SET sourceRequirementId = ? WHERE sourceRequirementId = ?', (new_id, old_id))
-            cursor.execute('UPDATE traceability_links SET targetRequirementId = ? WHERE targetRequirementId = ?', (new_id, old_id))
+            # traceability_links (if table exists)
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='traceability_links'")
+            if cursor.fetchone():
+                cursor.execute('UPDATE traceability_links SET sourceRequirementId = ? WHERE sourceRequirementId = ?', (new_id, old_id))
+                cursor.execute('UPDATE traceability_links SET targetRequirementId = ? WHERE targetRequirementId = ?', (new_id, old_id))
     
     conn.commit()
     conn.close()
