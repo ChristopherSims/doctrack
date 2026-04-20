@@ -1,25 +1,34 @@
 import React, { useState, useEffect } from 'react';
+import { Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 import {
-  Container,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Typography,
-  Grid,
   Dialog,
-  TextField,
-  Stack,
-  Chip,
-  CircularProgress,
-} from '@mui/material';
-import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import type { Document } from '../../types/index';
 import * as API from '../../api/api';
 
 interface DocumentsPageProps {
   onSelectDocument: (id: string, title: string) => void;
 }
+
+const getStatusBadgeClass = (status: string) => {
+  const map: Record<string, string> = {
+    draft: 'bg-secondary text-secondary-foreground',
+    review: 'bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-700',
+    approved: 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700',
+    released: 'bg-primary text-primary-foreground',
+  };
+  return map[status] || 'bg-secondary text-secondary-foreground';
+};
 
 const DocumentsPage: React.FC<DocumentsPageProps> = ({ onSelectDocument }) => {
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -95,148 +104,133 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ onSelectDocument }) => {
     }
   };
 
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, 'default' | 'primary' | 'secondary' | 'error' | 'warning' | 'info' | 'success'> = {
-      draft: 'default',
-      review: 'warning',
-      approved: 'success',
-      released: 'primary',
-    };
-    return colors[status] || 'default';
-  };
-
   if (loading) {
     return (
-      <Container sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
-        <CircularProgress />
-      </Container>
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin" />
+      </div>
     );
   }
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
-        <Typography variant="h4">Documents</Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => handleOpenDialog()}
-        >
+    <div className="mx-auto max-w-5xl px-4 py-8">
+      <div className="mb-8 flex items-center justify-between">
+        <h1 className="text-2xl font-bold tracking-tight">Documents</h1>
+        <Button onClick={() => handleOpenDialog()}>
+          <Plus className="size-4" />
           New Document
         </Button>
-      </Box>
+      </div>
 
       {documents.length === 0 ? (
-        <Card>
-          <CardContent sx={{ textAlign: 'center', py: 6 }}>
-            <Typography color="textSecondary" gutterBottom>
-              No documents yet
-            </Typography>
-            <Typography variant="body2" color="textSecondary">
-              Click "New Document" to get started
-            </Typography>
+        <Card className="py-12">
+          <CardContent className="text-center">
+            <p className="text-muted-foreground">No documents yet</p>
+            <p className="text-sm text-muted-foreground">
+              Click &quot;New Document&quot; to get started
+            </p>
           </CardContent>
         </Card>
       ) : (
-        <Grid container spacing={3}>
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3">
           {documents.map((doc) => (
-            <Grid item xs={12} sm={6} md={4} key={doc.id}>
-              <Card
-                sx={{
-                  cursor: 'pointer',
-                  '&:hover': {
-                    boxShadow: 6,
-                    transform: 'translateY(-4px)',
-                  },
-                  transition: 'all 0.3s ease',
-                  height: '100%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                }}
-                onClick={() => onSelectDocument(doc.id, doc.title)}
-              >
-                <CardContent sx={{ flex: 1 }}>
-                  <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
-                    {doc.title}
-                  </Typography>
-                  <Typography variant="body2" color="textSecondary" sx={{ mb: 2, minHeight: '40px' }}>
-                    {doc.description}
-                  </Typography>
-                  <Box sx={{ mb: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                    <Chip label={`v${doc.version}`} size="small" />
-                    <Chip label={doc.status} size="small" color={getStatusColor(doc.status)} />
-                  </Box>
-                  <Typography variant="caption" color="textSecondary">
-                    Owner: {doc.owner}
-                  </Typography>
-                </CardContent>
-                <Box sx={{ p: 2, borderTop: '1px solid #eee', display: 'flex', gap: 1 }}>
-                  <Button
-                    size="small"
-                    startIcon={<EditIcon />}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenDialog(doc);
-                    }}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    size="small"
-                    color="error"
-                    startIcon={<DeleteIcon />}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteDocument(doc.id);
-                    }}
-                  >
-                    Delete
-                  </Button>
-                </Box>
-              </Card>
-            </Grid>
+            <Card
+              key={doc.id}
+              className="cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-lg h-full"
+              onClick={() => onSelectDocument(doc.id, doc.title)}
+            >
+              <CardContent className="flex flex-1 flex-col">
+                <h2 className="mb-1 text-lg font-semibold">{doc.title}</h2>
+                <p className="mb-4 min-h-[40px] text-sm text-muted-foreground">
+                  {doc.description}
+                </p>
+                <div className="mb-4 flex flex-wrap gap-1.5">
+                  <Badge variant="outline">v{doc.version}</Badge>
+                  <Badge className={getStatusBadgeClass(doc.status)}>
+                    {doc.status}
+                  </Badge>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  Owner: {doc.owner}
+                </span>
+              </CardContent>
+              <div className="flex gap-1 border-t px-6 py-3">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenDialog(doc);
+                  }}
+                >
+                  <Pencil className="size-4" />
+                  Edit
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteDocument(doc.id);
+                  }}
+                >
+                  <Trash2 className="size-4" />
+                  Delete
+                </Button>
+              </div>
+            </Card>
           ))}
-        </Grid>
+        </div>
       )}
 
-      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
-        <Box sx={{ p: 3 }}>
-          <Typography variant="h6" sx={{ mb: 3 }}>
-            {editingDoc ? 'Edit Document' : 'New Document'}
-          </Typography>
-          <Stack spacing={2}>
-            <TextField
-              label="Title"
-              value={formData.title}
-              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              fullWidth
-              required
-            />
-            <TextField
-              label="Description"
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              fullWidth
-              multiline
-              rows={4}
-            />
-            <TextField
-              label="Owner"
-              value={formData.owner}
-              onChange={(e) => setFormData({ ...formData, owner: e.target.value })}
-              fullWidth
-              required
-            />
-            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-              <Button onClick={handleCloseDialog}>Cancel</Button>
-              <Button variant="contained" onClick={handleSaveDocument}>
-                Save
-              </Button>
-            </Box>
-          </Stack>
-        </Box>
+      <Dialog open={openDialog} onOpenChange={(open) => { if (!open) handleCloseDialog(); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingDoc ? 'Edit Document' : 'New Document'}</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="doc-title">
+                Title <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="doc-title"
+                value={formData.title}
+                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                required
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="doc-description">Description</Label>
+              <Textarea
+                id="doc-description"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                rows={4}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="doc-owner">
+                Owner <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="doc-owner"
+                value={formData.owner}
+                onChange={(e) => setFormData({ ...formData, owner: e.target.value })}
+                required
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCloseDialog}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveDocument}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
-    </Container>
+    </div>
   );
 };
 
