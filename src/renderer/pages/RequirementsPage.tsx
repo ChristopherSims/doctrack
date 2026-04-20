@@ -97,17 +97,17 @@ const priorityVariantMap: Record<string, 'default' | 'secondary' | 'destructive'
 const statusVariantMap: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   draft: 'secondary',
   review: 'outline',
-  approved: 'default',
-  implemented: 'default',
-  verified: 'default',
+  approved: 'outline',
+  implemented: 'outline',
+  verified: 'outline',
 };
 
 const statusColorMap: Record<string, string> = {
   draft: 'text-muted-foreground',
-  review: 'text-yellow-600',
-  approved: 'text-green-600',
-  implemented: 'text-blue-600',
-  verified: 'text-cyan-600',
+  review: 'text-yellow-600 border-yellow-500/40 bg-yellow-500/10',
+  approved: 'text-green-600 dark:text-green-400 border-green-500/40 bg-green-500/10',
+  implemented: 'text-blue-600 dark:text-blue-400 border-blue-500/40 bg-blue-500/10',
+  verified: 'text-pink-600 dark:text-pink-400 border-pink-500/40 bg-pink-500/10',
 };
 
 /** CSS for rendered HTML in the description column */
@@ -892,21 +892,24 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
       accessorKey: 'priority',
       header: 'Priority',
       size: 120,
-      cell: ({ row }) => (
-        <EditableCell
-          value={row.original.priority}
-          rowId={row.original.id}
-          field="priority"
-          onCommit={handleCellCommit}
-          type="select"
-          options={PRIORITY_OPTIONS}
-          displayRenderer={(v) => (
-            <Badge variant={priorityVariantMap[v] || 'secondary'} className={priorityColorMap[v] || ''}>
-              {v || 'medium'}
-            </Badge>
-          )}
-        />
-      ),
+      cell: ({ row }) => {
+        if (row.original.status === 'verified') return null;
+        return (
+          <EditableCell
+            value={row.original.priority}
+            rowId={row.original.id}
+            field="priority"
+            onCommit={handleCellCommit}
+            type="select"
+            options={PRIORITY_OPTIONS}
+            displayRenderer={(v) => (
+              <Badge variant={priorityVariantMap[v] || 'secondary'} className={priorityColorMap[v] || ''}>
+                {v || 'medium'}
+              </Badge>
+            )}
+          />
+        );
+      },
       filterFn: 'equalsString',
     },
     {
