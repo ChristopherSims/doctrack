@@ -229,7 +229,15 @@ const Navigation: React.FC<NavigationProps> = ({
         {selectedDocumentTitle && (
           <>
             <Separator orientation="vertical" className="h-6 mx-2" />
-            <span className="text-xs text-muted-foreground max-w-[120px] truncate">{selectedDocumentTitle}</span>
+            <Button
+              variant={currentPage === 'requirements' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="gap-1.5 max-w-[200px]"
+              onClick={() => onNavigate('requirements')}
+            >
+              <FileText className="h-4 w-4 shrink-0" />
+              <span className="truncate">{selectedDocumentTitle}</span>
+            </Button>
             <Separator orientation="vertical" className="h-6 mx-2" />
             {documentMenuItems.map(item => (
               <Button
