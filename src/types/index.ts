@@ -12,7 +12,7 @@ export interface Document {
 }
 
 export interface Requirement {
-  id: string; // REQ-XXX-XXX format
+  id: string; // e.g. SRS-1.1[1] (prefix from doc title)
   documentId: string;
   title: string;
   description: string;

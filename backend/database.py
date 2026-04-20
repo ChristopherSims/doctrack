@@ -243,6 +243,50 @@ def init_db():
     )
     ''', (datetime.utcnow().isoformat(),))
     
+    # Migrate old requirement IDs from DOC-{hex}-{level}[{seq}] to {PREFIX}-{level}[{seq}]
+    # Build doc_id -> prefix map from document titles
+    cursor.execute('SELECT id, title FROM documents')
+    doc_rows = cursor.fetchall()
+    doc_prefix_map = {}
+    for dr in doc_rows:
+        first_word = (dr[1] or '').strip().split()[0] if (dr[1] or '').strip() else ''
+        prefix = ''.join(c for c in first_word if c.isalnum()).upper() if first_word else dr[0][:8]
+        doc_prefix_map[dr[0]] = prefix
+    
+    cursor.execute('SELECT id, documentId, level, sequenceNumber FROM requirements')
+    req_rows = cursor.fetchall()
+    id_renames = []  # list of (old_id, new_id)
+    for req in req_rows:
+        old_id = req[0]
+        if old_id.startswith('DOC-'):
+            doc_id = req[1]
+            level = req[2]
+            seq = req[3]
+            prefix = doc_prefix_map.get(doc_id, doc_id[:8] if doc_id else 'UNK')
+            new_id = f"{prefix}-{level}[{seq}]"
+            if new_id != old_id:
+                id_renames.append((old_id, new_id))
+    
+    if id_renames:
+        # Rename in requirements table and all referencing columns
+        for old_id, new_id in id_renames:
+            cursor.execute('UPDATE requirements SET id = ?, parentRequirementId = CASE WHEN parentRequirementId = ? THEN ? ELSE parentRequirementId END WHERE id = ?', (new_id, old_id, new_id, old_id))
+            cursor.execute('UPDATE requirements SET parentRequirementId = ? WHERE parentRequirementId = ?', (new_id, old_id))
+            cursor.execute('UPDATE edit_history SET requirementId = ? WHERE requirementId = ?', (new_id, old_id))
+            # related_requirements is JSON — update substrings
+            cursor.execute("SELECT rowid, related_requirements FROM requirements WHERE related_requirements LIKE ?", (f'%{old_id}%',))
+            for rr in cursor.fetchall():
+                import json
+                try:
+                    related = json.loads(rr[1]) if rr[1] else []
+                    updated = [new_id if r == old_id else r for r in related]
+                    cursor.execute('UPDATE requirements SET related_requirements = ? WHERE rowid = ?', (json.dumps(updated), rr[0]))
+                except Exception:
+                    pass
+            # traceability_links
+            cursor.execute('UPDATE traceability_links SET sourceRequirementId = ? WHERE sourceRequirementId = ?', (new_id, old_id))
+            cursor.execute('UPDATE traceability_links SET targetRequirementId = ? WHERE targetRequirementId = ?', (new_id, old_id))
+    
     conn.commit()
     conn.close()
 
@@ -355,11 +399,26 @@ def delete_document_db(doc_id):
 # Requirement Functions
 def generate_requirement_id(doc_id, level, sequence_number):
     """Generate requirement ID scoped per-document.
-    Format: DOC-{shortDocId}-{level}[{seq}] e.g., DOC-1b7ffb8b-1.1[1]
-    This prevents ID collisions when different documents use the same level numbers.
+    Format: {DOC_PREFIX}-{level}[{seq}] e.g., SRS-1.1[1]
+    The prefix is derived from the document title (first word, uppercase).
+    Falls back to first 8 chars of doc_id if title is unavailable.
     """
-    short_doc = doc_id[:8] if doc_id else 'unknown'
-    return f"DOC-{short_doc}-{level}[{sequence_number}]"
+    prefix = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT title FROM documents WHERE id = ?', (doc_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if row and row[0]:
+            # Take first word, strip non-alphanumerics, uppercase
+            first_word = row[0].strip().split()[0] if row[0].strip() else ''
+            prefix = ''.join(c for c in first_word if c.isalnum()).upper()
+    except Exception:
+        pass
+    if not prefix:
+        prefix = doc_id[:8] if doc_id else 'UNK'
+    return f"{prefix}-{level}[{sequence_number}]"
 
 def get_next_sequence_number(doc_id, level):
     """Get the next sequence number for a given level in a document"""
