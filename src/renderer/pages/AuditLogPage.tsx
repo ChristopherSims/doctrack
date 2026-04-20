@@ -1,33 +1,33 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Box,
-  Typography,
-  Paper,
   Table,
   TableBody,
   TableCell,
-  TableContainer,
   TableHead,
+  TableHeader,
   TableRow,
-  TextField,
-  Select,
-  MenuItem,
-  Button,
-  Chip,
-  Collapse,
-  IconButton,
-  Stack,
-  InputLabel,
-  FormControl,
-  CircularProgress,
-  Alert,
-} from '@mui/material';
+} from '@/components/ui/table';
 import {
-  Refresh as RefreshIcon,
-  ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
-  FilterAlt as FilterIcon,
-} from '@mui/icons-material';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  RefreshCw,
+  ChevronDown,
+  ChevronUp,
+  Filter,
+  Loader2,
+  Info,
+  AlertCircle,
+} from 'lucide-react';
 import * as API from '../../api/api';
 import type { AuditLogEntry } from '../../types';
 
@@ -127,16 +127,16 @@ const AuditLogPage: React.FC<AuditLogPageProps> = ({ documentId }) => {
     }
   };
 
-  const getApprovalStatusChip = (status: string) => {
+  const getApprovalStatusBadge = (status: string) => {
     switch (status) {
       case 'approved':
-        return <Chip label="Approved" color="success" size="small" />;
+        return <Badge className="bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800">Approved</Badge>;
       case 'pending':
-        return <Chip label="Pending" color="warning" size="small" />;
+        return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-800">Pending</Badge>;
       case 'rejected':
-        return <Chip label="Rejected" color="error" size="small" />;
+        return <Badge className="bg-red-100 text-red-800 border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800">Rejected</Badge>;
       default:
-        return <Chip label={status || 'N/A'} size="small" variant="outlined" />;
+        return <Badge variant="outline">{status || 'N/A'}</Badge>;
     }
   };
 
@@ -148,218 +148,215 @@ const AuditLogPage: React.FC<AuditLogPageProps> = ({ documentId }) => {
   };
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
-        <Typography variant="h5">
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-semibold">
           {documentId ? 'Document Audit Log' : 'Audit Log'}
-        </Typography>
+        </h1>
         <Button
-          variant="outlined"
-          startIcon={<RefreshIcon />}
+          variant="outline"
           onClick={fetchAuditLog}
           disabled={loading}
         >
+          <RefreshCw className="h-4 w-4" />
           Refresh
         </Button>
-      </Stack>
+      </div>
 
       {documentId && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Showing audit log entries for document: {documentId}
+        <Alert className="mb-4">
+          <Info className="h-4 w-4" />
+          <AlertDescription>
+            Showing audit log entries for document: {documentId}
+          </AlertDescription>
         </Alert>
       )}
 
       {/* Filter Controls */}
-      <Paper sx={{ p: 2, mb: 2 }}>
-        <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
-          <FilterIcon color="action" />
-          <TextField
-            label="Search"
-            size="small"
-            value={searchText}
-            onChange={e => setSearchText(e.target.value)}
-            placeholder="Search action, actor, resource..."
-            sx={{ minWidth: 220 }}
-          />
-          <FormControl size="small" sx={{ minWidth: 160 }}>
-            <InputLabel>Resource Type</InputLabel>
+      <div className="rounded-lg border bg-card p-4 mb-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <Filter className="h-4 w-4 text-muted-foreground" />
+          <div className="min-w-[220px]">
+            <Input
+              placeholder="Search action, actor, resource..."
+              value={searchText}
+              onChange={e => setSearchText(e.target.value)}
+            />
+          </div>
+          <div className="min-w-[160px]">
             <Select
               value={resourceTypeFilter}
-              label="Resource Type"
-              onChange={e => setResourceTypeFilter(e.target.value)}
+              onValueChange={value => setResourceTypeFilter(value)}
             >
-              <MenuItem value="all">All</MenuItem>
-              {resourceTypes.map(rt => (
-                <MenuItem key={rt} value={rt}>
-                  {rt}
-                </MenuItem>
-              ))}
+              <SelectTrigger size="sm">
+                <SelectValue placeholder="Resource Type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                {resourceTypes.map(rt => (
+                  <SelectItem key={rt} value={rt}>
+                    {rt}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
-          </FormControl>
-          <TextField
-            label="From"
-            type="date"
-            size="small"
-            value={dateFrom}
-            onChange={e => setDateFrom(e.target.value)}
-            InputLabelProps={{ shrink: true }}
-          />
-          <TextField
-            label="To"
-            type="date"
-            size="small"
-            value={dateTo}
-            onChange={e => setDateTo(e.target.value)}
-            InputLabelProps={{ shrink: true }}
-          />
-          <Button size="small" onClick={clearFilters}>
+          </div>
+          <div className="flex items-center gap-2">
+            <Label htmlFor="date-from" className="text-sm whitespace-nowrap">From</Label>
+            <Input
+              id="date-from"
+              type="date"
+              className="w-auto"
+              value={dateFrom}
+              onChange={e => setDateFrom(e.target.value)}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Label htmlFor="date-to" className="text-sm whitespace-nowrap">To</Label>
+            <Input
+              id="date-to"
+              type="date"
+              className="w-auto"
+              value={dateTo}
+              onChange={e => setDateTo(e.target.value)}
+            />
+          </div>
+          <Button size="sm" variant="ghost" onClick={clearFilters}>
             Clear Filters
           </Button>
-        </Stack>
-      </Paper>
+        </div>
+      </div>
 
       {/* Error State */}
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
 
       {/* Loading State */}
       {loading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress />
-        </Box>
+        <div className="flex justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin" />
+        </div>
       )}
 
       {/* Table */}
       {!loading && !error && (
-        <TableContainer component={Paper}>
-          <Table size="small">
-            <TableHead>
+        <div className="rounded-lg border">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell sx={{ fontWeight: 600 }}>Timestamp</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Action</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Actor</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Resource Type</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Resource ID</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Approval Status</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Details</TableCell>
+                <TableHead className="font-semibold">Timestamp</TableHead>
+                <TableHead className="font-semibold">Action</TableHead>
+                <TableHead className="font-semibold">Actor</TableHead>
+                <TableHead className="font-semibold">Resource Type</TableHead>
+                <TableHead className="font-semibold">Resource ID</TableHead>
+                <TableHead className="font-semibold">Approval Status</TableHead>
+                <TableHead className="font-semibold">Details</TableHead>
               </TableRow>
-            </TableHead>
+            </TableHeader>
             <TableBody>
               {filteredEntries.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
-                    <Typography color="textSecondary">
+                  <TableCell colSpan={7} className="text-center py-8">
+                    <span className="text-muted-foreground">
                       No audit log entries found
-                    </Typography>
+                    </span>
                   </TableCell>
                 </TableRow>
               ) : (
                 filteredEntries.map(entry => (
                   <React.Fragment key={entry.id}>
-                    <TableRow hover>
+                    <TableRow>
                       <TableCell>{formatTimestamp(entry.timestamp)}</TableCell>
                       <TableCell>
-                        <Chip label={entry.action} size="small" variant="outlined" />
+                        <Badge variant="outline">{entry.action}</Badge>
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2">
+                        <span className="text-sm">
                           {entry.actorName}
                           {entry.actorType && (
-                            <Typography
-                              component="span"
-                              variant="caption"
-                              color="textSecondary"
-                              sx={{ ml: 0.5 }}
-                            >
+                            <span className="ml-1 text-xs text-muted-foreground">
                               ({entry.actorType})
-                            </Typography>
+                            </span>
                           )}
-                        </Typography>
+                        </span>
                       </TableCell>
                       <TableCell>{entry.resourceType}</TableCell>
                       <TableCell>
-                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                        <span className="font-mono text-xs">
                           {entry.resourceId}
-                        </Typography>
+                        </span>
                       </TableCell>
-                      <TableCell>{getApprovalStatusChip(entry.approvalStatus)}</TableCell>
+                      <TableCell>{getApprovalStatusBadge(entry.approvalStatus)}</TableCell>
                       <TableCell>
                         {entry.changeDetails ? (
-                          <IconButton
-                            size="small"
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
                             onClick={() => toggleRow(entry.id)}
                             aria-label="Toggle details"
                           >
                             {expandedRows.has(entry.id) ? (
-                              <ExpandLessIcon />
+                              <ChevronUp className="h-4 w-4" />
                             ) : (
-                              <ExpandMoreIcon />
+                              <ChevronDown className="h-4 w-4" />
                             )}
-                          </IconButton>
+                          </Button>
                         ) : (
-                          <Typography variant="caption" color="textSecondary">
-                            None
-                          </Typography>
+                          <span className="text-xs text-muted-foreground">None</span>
                         )}
                       </TableCell>
                     </TableRow>
-                    <TableRow>
-                      <TableCell colSpan={7} sx={{ py: 0, border: 0 }}>
-                        <Collapse
-                          in={expandedRows.has(entry.id)}
-                          timeout="auto"
-                          unmountOnExit
-                        >
-                          <Paper
-                            variant="outlined"
-                            sx={{ m: 1, p: 2, bgcolor: '#f5f5f5', maxHeight: 300, overflow: 'auto' }}
-                          >
-                            <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block' }}>
+                    {expandedRows.has(entry.id) && (
+                      <TableRow>
+                        <TableCell colSpan={7} className="py-0 border-0">
+                          <div className="m-2 p-4 rounded-lg border bg-muted/50 max-h-[300px] overflow-auto">
+                            <span className="text-xs text-muted-foreground block mb-1">
                               Change Details
-                            </Typography>
-                            <pre style={{ margin: 0, fontSize: '0.8rem', whiteSpace: 'pre-wrap' }}>
+                            </span>
+                            <pre className="m-0 text-xs whitespace-pre-wrap">
                               {JSON.stringify(entry.changeDetails, null, 2)}
                             </pre>
                             {entry.reason && (
-                              <Box sx={{ mt: 1 }}>
-                                <Typography variant="caption" color="textSecondary">Reason: </Typography>
-                                <Typography variant="body2">{entry.reason}</Typography>
-                              </Box>
+                              <div className="mt-2">
+                                <span className="text-xs text-muted-foreground">Reason: </span>
+                                <span className="text-sm">{entry.reason}</span>
+                              </div>
                             )}
                             {entry.approvedBy && (
-                              <Box sx={{ mt: 0.5 }}>
-                                <Typography variant="caption" color="textSecondary">Approved By: </Typography>
-                                <Typography variant="body2">{entry.approvedBy}</Typography>
-                              </Box>
+                              <div className="mt-1">
+                                <span className="text-xs text-muted-foreground">Approved By: </span>
+                                <span className="text-sm">{entry.approvedBy}</span>
+                              </div>
                             )}
                             {entry.aiAgentModel && (
-                              <Box sx={{ mt: 0.5 }}>
-                                <Typography variant="caption" color="textSecondary">AI Model: </Typography>
-                                <Typography variant="body2">{entry.aiAgentModel}</Typography>
-                              </Box>
+                              <div className="mt-1">
+                                <span className="text-xs text-muted-foreground">AI Model: </span>
+                                <span className="text-sm">{entry.aiAgentModel}</span>
+                              </div>
                             )}
-                          </Paper>
-                        </Collapse>
-                      </TableCell>
-                    </TableRow>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
                   </React.Fragment>
                 ))
               )}
             </TableBody>
           </Table>
-        </TableContainer>
+        </div>
       )}
 
       {/* Result count */}
       {!loading && !error && entries.length > 0 && (
-        <Typography variant="caption" color="textSecondary" sx={{ mt: 1, display: 'block' }}>
+        <span className="text-xs text-muted-foreground block mt-2">
           Showing {filteredEntries.length} of {entries.length} entries
-        </Typography>
+        </span>
       )}
-    </Box>
+    </div>
   );
 };
 
