@@ -1,28 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Box,
-  Typography,
-  Paper,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-  Chip,
-  Button,
-  TextField,
-  Dialog,
-  Stack,
-  IconButton,
-  Tooltip,
-  Divider,
-} from '@mui/material';
-import {
   History as HistoryIcon,
-  Commit as CommitIcon,
-  Add as AddIcon,
+  GitCommit as CommitIcon,
+  Plus as AddIcon,
   Tag as TagIcon,
-  Refresh as RefreshIcon,
-} from '@mui/icons-material';
+  RefreshCw as RefreshIcon,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from '@/components/ui/tooltip';
 import * as API from '../../api/api';
 
 interface HistoryPageProps {
@@ -71,128 +71,140 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ documentId, documentTitle }) 
   };
 
   return (
-    <Box sx={{ p: 3, maxWidth: 900 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <HistoryIcon color="primary" />
-          <Typography variant="h5" sx={{ fontWeight: 600 }}>
+    <div className="p-6 max-w-[900px]">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <HistoryIcon className="h-5 w-5 text-primary" />
+          <h2 className="text-xl font-semibold">
             Version History
-          </Typography>
-          <Chip label={documentTitle} size="small" variant="outlined" />
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Tooltip title="Refresh">
-            <IconButton onClick={loadHistory} size="small">
-              <RefreshIcon />
-            </IconButton>
-          </Tooltip>
+          </h2>
+          <Badge variant="outline">{documentTitle}</Badge>
+        </div>
+        <div className="flex gap-2">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon-sm" onClick={loadHistory}>
+                  <RefreshIcon className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Refresh</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            size="small"
+            size="sm"
             onClick={() => setOpenCommitDialog(true)}
           >
+            <AddIcon className="h-4 w-4" />
             New Commit
           </Button>
-        </Box>
-      </Box>
+        </div>
+      </div>
 
       {/* Tags Section */}
       {tags.length > 0 && (
-        <Paper sx={{ p: 2, mb: 2 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
-            <TagIcon sx={{ fontSize: 16, mr: 0.5, verticalAlign: 'middle' }} /> Tags
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+        <div className="rounded-lg border bg-card p-4 mb-4">
+          <p className="text-sm font-semibold mb-2">
+            <TagIcon className="inline h-4 w-4 mr-1 align-middle" /> Tags
+          </p>
+          <div className="flex gap-2 flex-wrap">
             {tags.map((tag) => (
-              <Chip
+              <Badge
                 key={tag.id}
-                label={`${tag.name} (${tag.commitId?.substring(0, 8)})`}
-                size="small"
-                color="primary"
-                variant="outlined"
-              />
+                variant="outline"
+              >
+                {`${tag.name} (${tag.commitId?.substring(0, 8)})`}
+              </Badge>
             ))}
-          </Box>
-        </Paper>
+          </div>
+        </div>
       )}
 
       {/* Commits List */}
-      <Paper>
+      <div className="rounded-lg border bg-card overflow-hidden">
         {commits.length === 0 ? (
-          <Box sx={{ p: 4, textAlign: 'center' }}>
-            <HistoryIcon sx={{ fontSize: 48, color: '#ccc', mb: 1 }} />
-            <Typography color="textSecondary">No commits yet</Typography>
-            <Typography variant="body2" color="textSecondary">
+          <div className="p-8 text-center">
+            <HistoryIcon className="h-12 w-12 text-muted-foreground/40 mx-auto mb-2" />
+            <p className="text-muted-foreground">No commits yet</p>
+            <p className="text-sm text-muted-foreground">
               Create a commit to snapshot the current state of your requirements
-            </Typography>
-          </Box>
+            </p>
+          </div>
         ) : (
-          <List>
+          <div>
             {commits.map((commit, index) => (
               <React.Fragment key={commit.id}>
-                <ListItem sx={{ py: 1.5 }}>
-                  <ListItemIcon sx={{ minWidth: 36 }}>
-                    <CommitIcon sx={{ color: index === 0 ? '#1976d2' : '#999' }} />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="body2" sx={{ fontWeight: index === 0 ? 600 : 400 }}>
-                          {commit.message}
-                        </Typography>
-                        {index === 0 && <Chip label="latest" size="small" color="primary" sx={{ height: 20 }} />}
-                      </Box>
-                    }
-                    secondary={
-                      <Typography variant="caption" color="textSecondary">
-                        {commit.author} · {commit.branchName} · {new Date(commit.createdAt).toLocaleString()}
-                      </Typography>
-                    }
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <CommitIcon
+                    className={`h-4 w-4 shrink-0 ${index === 0 ? 'text-primary' : 'text-muted-foreground'}`}
                   />
-                  <Chip
-                    label={commit.id?.substring(0, 8)}
-                    size="small"
-                    variant="outlined"
-                    sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}
-                  />
-                </ListItem>
-                {index < commits.length - 1 && <Divider />}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-sm ${index === 0 ? 'font-semibold' : 'font-normal'}`}>
+                        {commit.message}
+                      </span>
+                      {index === 0 && (
+                        <Badge className="h-5 text-xs">latest</Badge>
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {commit.author} · {commit.branchName} · {new Date(commit.createdAt).toLocaleString()}
+                    </span>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className="font-mono text-[0.7rem]"
+                  >
+                    {commit.id?.substring(0, 8)}
+                  </Badge>
+                </div>
+                {index < commits.length - 1 && (
+                  <div className="border-t" />
+                )}
               </React.Fragment>
             ))}
-          </List>
+          </div>
         )}
-      </Paper>
+      </div>
 
       {/* Create Commit Dialog */}
-      <Dialog open={openCommitDialog} onClose={() => setOpenCommitDialog(false)} maxWidth="sm" fullWidth>
-        <Box sx={{ p: 3 }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>Create Commit</Typography>
-          <Stack spacing={2}>
-            <TextField
-              label="Commit Message"
-              value={commitMessage}
-              onChange={(e) => setCommitMessage(e.target.value)}
-              fullWidth
-              required
-              placeholder="Describe the changes in this commit"
-            />
-            <TextField
-              label="Author"
-              value={commitAuthor}
-              onChange={(e) => setCommitAuthor(e.target.value)}
-              fullWidth
-            />
-            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-              <Button onClick={() => setOpenCommitDialog(false)}>Cancel</Button>
-              <Button variant="contained" onClick={handleCreateCommit} disabled={!commitMessage}>
-                Commit
-              </Button>
-            </Box>
-          </Stack>
-        </Box>
+      <Dialog open={openCommitDialog} onOpenChange={setOpenCommitDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Commit</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="commit-message">Commit Message *</Label>
+              <Input
+                id="commit-message"
+                value={commitMessage}
+                onChange={(e) => setCommitMessage(e.target.value)}
+                placeholder="Describe the changes in this commit"
+                required
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="commit-author">Author</Label>
+              <Input
+                id="commit-author"
+                value={commitAuthor}
+                onChange={(e) => setCommitAuthor(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpenCommitDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateCommit} disabled={!commitMessage}>
+              Commit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
-    </Box>
+    </div>
   );
 };
 
