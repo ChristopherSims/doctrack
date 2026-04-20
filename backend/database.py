@@ -1614,3 +1614,94 @@ def delete_comment(comment_id):
     conn.commit()
     conn.close()
     return deleted
+
+# --- Dashboard Stats ---
+
+def get_dashboard_stats():
+    """Get global dashboard statistics across all documents.
+
+    Returns {
+        totalDocuments,
+        totalRequirements,
+        requirementsByStatus: {status: count},
+        requirementsByPriority: {priority: count},
+        documentsNeedingAttention: [{id, title, draftCount, reviewCount}],
+        recentActivity: [audit_log dicts],
+        topTags: [{tag, count}],
+    }
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # Total documents
+    cursor.execute('SELECT COUNT(*) FROM documents')
+    total_documents = cursor.fetchone()[0] or 0
+
+    # Total requirements
+    cursor.execute('SELECT COUNT(*) FROM requirements')
+    total_requirements = cursor.fetchone()[0] or 0
+
+    # Requirements by status
+    cursor.execute('SELECT status, COUNT(*) FROM requirements GROUP BY status')
+    by_status = {row[0] or 'unknown': row[1] for row in cursor.fetchall()}
+
+    # Requirements by priority
+    cursor.execute('SELECT priority, COUNT(*) FROM requirements GROUP BY priority')
+    by_priority = {row[0] or 'unknown': row[1] for row in cursor.fetchall()}
+
+    # Documents needing attention (draft or review requirements)
+    cursor.execute('''
+        SELECT d.id, d.title,
+               SUM(CASE WHEN r.status = 'draft' THEN 1 ELSE 0 END) as draftCount,
+               SUM(CASE WHEN r.status = 'review' THEN 1 ELSE 0 END) as reviewCount
+        FROM documents d
+        LEFT JOIN requirements r ON d.id = r.documentId
+        WHERE r.status IN ('draft', 'review')
+        GROUP BY d.id
+        HAVING draftCount > 0 OR reviewCount > 0
+        ORDER BY reviewCount DESC, draftCount DESC
+        LIMIT 10
+    ''')
+    docs_attention = []
+    for row in cursor.fetchall():
+        docs_attention.append({
+            'id': row[0],
+            'title': row[1],
+            'draftCount': row[2] or 0,
+            'reviewCount': row[3] or 0,
+        })
+
+    # Recent activity (last 15 audit log entries)
+    cursor.execute('''
+        SELECT * FROM audit_log
+        ORDER BY timestamp DESC
+        LIMIT 15
+    ''')
+    recent_activity = [dict(row) for row in cursor.fetchall()]
+
+    # Top tags
+    cursor.execute('SELECT tags FROM requirements')
+    tag_counts = {}
+    for row in cursor.fetchall():
+        try:
+            tags = json.loads(row[0]) if row[0] else []
+            if isinstance(tags, list):
+                for t in tags:
+                    if isinstance(t, str) and t.strip():
+                        tag = t.strip()
+                        tag_counts[tag] = tag_counts.get(tag, 0) + 1
+        except (json.JSONDecodeError, TypeError):
+            pass
+    top_tags = sorted([{'tag': k, 'count': v} for k, v in tag_counts.items()],
+                      key=lambda x: x['count'], reverse=True)[:10]
+
+    conn.close()
+    return {
+        'totalDocuments': total_documents,
+        'totalRequirements': total_requirements,
+        'requirementsByStatus': by_status,
+        'requirementsByPriority': by_priority,
+        'documentsNeedingAttention': docs_attention,
+        'recentActivity': recent_activity,
+        'topTags': top_tags,
+    }

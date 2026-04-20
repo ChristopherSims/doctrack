@@ -27,6 +27,7 @@ import {
   Plus,
   Loader2,
   GitCommitHorizontal,
+  LayoutDashboard,
 } from 'lucide-react';
 import type { Page } from '../App';
 import type { RequirementFilter } from '../../types/index';
@@ -200,6 +201,16 @@ const Navigation: React.FC<NavigationProps> = ({
           <Badge variant="secondary" className="mr-2">{currentBranch}</Badge>
         )}
         <Separator orientation="vertical" className="h-6 mx-2" />
+
+        <Button
+          variant={currentPage === 'dashboard' ? 'secondary' : 'ghost'}
+          size="sm"
+          className="gap-1.5"
+          onClick={() => onNavigate('dashboard')}
+        >
+          <LayoutDashboard className="h-4 w-4" />
+          Dashboard
+        </Button>
 
         {/* Documents Dropdown - custom implementation */}
         <div className="relative" ref={dropdownRef}>

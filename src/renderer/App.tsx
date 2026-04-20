@@ -10,9 +10,10 @@ import SettingsPage from './pages/SettingsPage';
 import DiffViewPage from './pages/DiffViewPage';
 import TraceabilityPage from './pages/TraceabilityPage';
 import AuditLogPage from './pages/AuditLogPage';
+import DashboardPage from './pages/DashboardPage';
 import type { RequirementFilter } from '../types/index';
 
-export type Page = 'documents' | 'requirements' | 'history' | 'branches' | 'export' | 'settings' | 'diff' | 'traceability' | 'audit';
+export type Page = 'dashboard' | 'documents' | 'requirements' | 'history' | 'branches' | 'export' | 'settings' | 'diff' | 'traceability' | 'audit';
 
 const EMPTY_FILTER: RequirementFilter = {
   title: '',
@@ -34,7 +35,7 @@ interface AppState {
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
-    currentPage: 'documents',
+    currentPage: 'dashboard',
     selectedDocumentId: null,
     selectedDocumentTitle: '',
     currentBranch: 'main',
@@ -127,6 +128,13 @@ const App: React.FC = () => {
 
   const renderPage = () => {
     switch (state.currentPage) {
+      case 'dashboard':
+        return (
+          <DashboardPage
+            onSelectDocument={handleSelectDocument}
+            onNavigate={(page) => handleNavigate(page as Page)}
+          />
+        );
       case 'documents':
         return <DocumentsPage onSelectDocument={handleSelectDocument} />;
       case 'requirements':

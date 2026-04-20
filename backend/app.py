@@ -11,6 +11,7 @@ from database import add_audit_log, get_audit_log
 from database import add_edit_history, get_edit_history, get_edit_history_for_document
 from database import get_unique_tags
 from database import get_comments, create_comment, delete_comment
+from database import get_dashboard_stats
 from export import export_csv, export_word, export_pdf
 import os
 import csv
@@ -742,6 +743,17 @@ def delete_req_comment(comment_id):
 @app.route('/api/health', methods=['GET'])
 def health():
     return jsonify({'status': 'ok'})
+
+# --- Dashboard ---
+
+@app.route('/api/dashboard', methods=['GET'])
+def dashboard_route():
+    try:
+        stats = get_dashboard_stats()
+        return jsonify({'success': True, 'data': stats})
+    except Exception as e:
+        logger.error(f"Error fetching dashboard stats: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch dashboard stats'}), 500
 
 # --- Error handlers ---
 

@@ -389,6 +389,12 @@ export async function deleteComment(
   return response.json();
 }
 
+// Dashboard API
+export async function getDashboard(): Promise<ApiResponse<any>> {
+  const response = await fetch(`${API_BASE_URL}/dashboard`);
+  return response.json();
+}
+
 // Cross-doc traceability tree
 export async function getCrossDocTraceTree(
   docId: string
