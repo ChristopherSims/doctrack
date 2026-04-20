@@ -411,7 +411,7 @@ def merge_branches_route(doc_id):
         if not result:
             return jsonify({'success': False, 'error': 'No commits found on source branch to merge'}), 400
         add_audit_log('merge_branches', 'document', data['author'], 'document', doc_id,
-                  {'sourceBranch': data['sourceBranch'], 'targetBranch': data['targetBranch'], 'commitId': result['id']})
+                  {'sourceBranch': data['sourceBranch'], 'targetBranch': data['targetBranch'], 'commitId': result['mergeCommitId']})
         return jsonify({'success': True, 'data': result})
     except Exception as e:
         logger.error(f"Error merging branches for document {doc_id}: {e}")
