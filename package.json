@@ -17,12 +17,7 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@emotion/react": "^11.11.0",
-    "@emotion/styled": "^11.11.0",
     "@hookform/resolvers": "^5.2.2",
-    "@mui/icons-material": "^5.14.0",
-    "@mui/material": "^5.14.0",
-    "@mui/x-data-grid": "^6.20.4",
     "@tanstack/react-table": "^8.21.3",
     "axios": "^1.5.0",
     "class-variance-authority": "^0.7.1",
