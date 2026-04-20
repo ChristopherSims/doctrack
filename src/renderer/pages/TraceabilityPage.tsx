@@ -1,48 +1,48 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Box,
-  Button,
-  Typography,
   Dialog,
-  DialogTitle,
   DialogContent,
-  DialogActions,
-  Paper,
-  Chip,
-  CircularProgress,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
   Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  IconButton,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-  Tooltip,
-  Snackbar,
-  Alert,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Table,
   TableBody,
   TableCell,
-  TableContainer,
   TableHead,
+  TableHeader,
   TableRow,
-  Collapse,
-  Card,
-  CardContent,
-  Stack,
-} from '@mui/material';
+} from '@/components/ui/table';
 import {
-  Add as AddIcon,
-  Delete as DeleteIcon,
-  DeviceHub as DeviceHubIcon,
-  ArrowForward as ArrowForwardIcon,
-  ArrowBack as ArrowBackIcon,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { Card, CardContent } from '@/components/ui/card';
+import {
+  Plus,
+  Trash2,
+  Network,
+  ArrowRight,
+  ArrowLeft,
   Link as LinkIcon,
-  ArrowDownward as ArrowDownwardIcon,
-  ArrowUpward as ArrowUpwardIcon,
-} from '@mui/icons-material';
+  ArrowDown,
+  ArrowUp,
+  Loader2,
+  X,
+} from 'lucide-react';
 import type { Requirement, TraceabilityLink, Document } from '../../types/index';
 import * as API from '../../api/api';
 
@@ -54,12 +54,20 @@ interface TraceabilityPageProps {
 const LINK_TYPES = ['implements', 'verifies', 'traces_to', 'derives_from', 'satisfies'] as const;
 type LinkType = typeof LINK_TYPES[number];
 
-const LINK_TYPE_COLORS: Record<string, 'default' | 'primary' | 'secondary' | 'error' | 'warning' | 'info' | 'success'> = {
-  implements: 'primary',
-  verifies: 'success',
-  traces_to: 'info',
-  derives_from: 'warning',
+const LINK_TYPE_VARIANT: Record<string, string> = {
+  implements: 'default',
+  verifies: 'secondary',
+  traces_to: 'outline',
+  derives_from: 'outline',
   satisfies: 'secondary',
+};
+
+const LINK_TYPE_COLOR_CLASS: Record<string, string> = {
+  implements: 'bg-blue-100 text-blue-800 border-blue-300',
+  verifies: 'bg-green-100 text-green-800 border-green-300',
+  traces_to: 'bg-sky-100 text-sky-800 border-sky-300',
+  derives_from: 'bg-amber-100 text-amber-800 border-amber-300',
+  satisfies: 'bg-purple-100 text-purple-800 border-purple-300',
 };
 
 interface LinkWithDetails extends TraceabilityLink {
@@ -395,550 +403,532 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '80vh' }}>
-        <CircularProgress />
-      </Box>
+      <div className="flex justify-center items-center min-h-[80vh]">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
     );
   }
 
   return (
-    <Box sx={{ p: 3, display: 'flex', flexDirection: 'column', gap: 3 }}>
-      {/* Header */}
-      <Paper sx={{ p: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <DeviceHubIcon sx={{ fontSize: 28, color: 'primary.main' }} />
-          <Box sx={{ flex: 1 }}>
-            <Typography variant="h5" sx={{ fontWeight: 600 }}>
-              Traceability Matrix
-            </Typography>
-            <Typography variant="body2" color="textSecondary">
-              {documentTitle} — Cross-document requirement linking and impact analysis
-            </Typography>
-          </Box>
-          {selectedReq && (
-            <Button
-              variant="contained"
-              color="secondary"
-              size="small"
-              onClick={handleRunImpactAnalysis}
-              disabled={computingImpact}
-              startIcon={computingImpact ? <CircularProgress size={16} /> : <DeviceHubIcon />}
-            >
-              {computingImpact ? 'Analyzing...' : 'Impact Analysis'}
-            </Button>
-          )}
-        </Box>
-      </Paper>
+    <TooltipProvider>
+      <div className="p-3 flex flex-col gap-3">
+        {/* Header */}
+        <div className="rounded-lg border bg-card p-4">
+          <div className="flex items-center gap-2">
+            <Network className="h-7 w-7 text-primary" />
+            <div className="flex-1">
+              <h1 className="text-xl font-semibold">
+                Traceability Matrix
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                {documentTitle} — Cross-document requirement linking and impact analysis
+              </p>
+            </div>
+            {selectedReq && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleRunImpactAnalysis}
+                disabled={computingImpact}
+              >
+                {computingImpact ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Network className="h-4 w-4" />
+                )}
+                {computingImpact ? 'Analyzing...' : 'Impact Analysis'}
+              </Button>
+            )}
+          </div>
+        </div>
 
-      <Box sx={{ display: 'flex', gap: 3, flex: 1 }}>
-        {/* Traceability Matrix */}
-        <Box sx={{ flex: 2 }}>
-          <Paper sx={{ overflow: 'hidden' }}>
-            <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-              <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                Requirements & Links
-              </Typography>
-              <Typography variant="caption" color="textSecondary">
-                Click a requirement to view its links. Use the + button to create a new link.
-              </Typography>
-            </Box>
-            <TableContainer sx={{ maxHeight: '60vh' }}>
-              <Table stickyHeader size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 700, width: 80 }}>Level</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Requirement</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 100 }}>Links</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 80 }}>Action</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {requirements.map((req) => {
-                    const isSelected = selectedReq?.id === req.id;
-                    const linkCount = getLinkCount(req.id);
-                    const reqLinks = linksMap[req.id] || [];
-                    return (
-                      <React.Fragment key={req.id}>
-                        <TableRow
-                          hover
-                          selected={isSelected}
-                          onClick={() => handleSelectReq(req)}
-                          sx={{
-                            cursor: 'pointer',
-                            '&.Mui-selected': {
-                              backgroundColor: '#e3f2fd',
-                              '&:hover': { backgroundColor: '#bbdefb' },
-                            },
-                          }}
-                        >
-                          <TableCell>
-                            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
-                              {req.level || '1'}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                              <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                                {req.title}
-                              </Typography>
-                              <Typography variant="caption" color="textSecondary" sx={{ fontFamily: 'monospace' }}>
-                                {req.id}
-                              </Typography>
-                            </Box>
-                          </TableCell>
-                          <TableCell>
-                            {linkCount > 0 ? (
-                              <Chip
-                                label={linkCount}
-                                size="small"
-                                color="primary"
-                                variant="filled"
-                                sx={{ fontWeight: 600 }}
-                              />
-                            ) : (
-                              <Chip label="0" size="small" variant="outlined" sx={{ color: '#999' }} />
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <Tooltip title="Create link">
-                              <IconButton
-                                size="small"
-                                color="primary"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleOpenCreateDialog(req);
-                                }}
-                              >
-                                <AddIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </TableCell>
-                        </TableRow>
-                        {/* Expand to show link chips inline */}
-                        {isSelected && reqLinks.length > 0 && (
-                          <TableRow>
-                            <TableCell colSpan={4} sx={{ py: 0, backgroundColor: '#f5f9ff' }}>
-                              <Collapse in={isSelected}>
-                                <Box sx={{ px: 2, py: 1, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                                  {reqLinks.map((link: TraceabilityLink) => (
-                                    <Chip
-                                      key={link.id}
-                                      icon={<LinkIcon />}
-                                      label={`${link.linkType} → ${link.targetRequirementId}`}
-                                      size="small"
-                                      color={LINK_TYPE_COLORS[link.linkType] || 'default'}
-                                      variant="outlined"
-                                      sx={{ fontSize: '0.7rem' }}
-                                    />
-                                  ))}
-                                </Box>
-                              </Collapse>
+        <div className="flex gap-3 flex-1">
+          {/* Traceability Matrix */}
+          <div className="flex-[2]">
+            <div className="rounded-lg border bg-card overflow-hidden">
+              <div className="p-4 border-b">
+                <h2 className="text-base font-semibold">
+                  Requirements & Links
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  Click a requirement to view its links. Use the + button to create a new link.
+                </p>
+              </div>
+              <div className="max-h-[60vh] overflow-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="font-bold w-[80px]">Level</TableHead>
+                      <TableHead className="font-bold">Requirement</TableHead>
+                      <TableHead className="font-bold w-[100px]">Links</TableHead>
+                      <TableHead className="font-bold w-[80px]">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {requirements.map((req) => {
+                      const isSelected = selectedReq?.id === req.id;
+                      const linkCount = getLinkCount(req.id);
+                      const reqLinks = linksMap[req.id] || [];
+                      return (
+                        <React.Fragment key={req.id}>
+                          <TableRow
+                            data-state={isSelected ? 'selected' : undefined}
+                            onClick={() => handleSelectReq(req)}
+                            className="cursor-pointer"
+                          >
+                            <TableCell>
+                              <span className="text-sm font-semibold font-mono">
+                                {req.level || '1'}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-col">
+                                <span className="text-sm font-medium">
+                                  {req.title}
+                                </span>
+                                <span className="text-xs text-muted-foreground font-mono">
+                                  {req.id}
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {linkCount > 0 ? (
+                                <Badge className="font-semibold">{linkCount}</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-muted-foreground">0</Badge>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenCreateDialog(req);
+                                    }}
+                                  >
+                                    <Plus className="h-3.5 w-3.5" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Create link</TooltipContent>
+                              </Tooltip>
                             </TableCell>
                           </TableRow>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-                  {requirements.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
-                        <Typography color="textSecondary">No requirements found</Typography>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Paper>
-        </Box>
+                          {/* Expand to show link chips inline */}
+                          {isSelected && reqLinks.length > 0 && (
+                            <TableRow>
+                              <TableCell colSpan={4} className="py-0 bg-blue-50/50">
+                                <div className="px-2 py-1 flex flex-wrap gap-1">
+                                  {reqLinks.map((link: TraceabilityLink) => (
+                                    <Badge
+                                      key={link.id}
+                                      variant="outline"
+                                      className={`text-xs ${LINK_TYPE_COLOR_CLASS[link.linkType] || ''}`}
+                                    >
+                                      <LinkIcon className="h-3 w-3" />
+                                      {link.linkType} → {link.targetRequirementId}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                    {requirements.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={4} className="text-center py-4">
+                          <span className="text-muted-foreground">No requirements found</span>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </div>
 
-        {/* Right Panel: View Links + Impact Analysis */}
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {/* View Links Panel */}
-          <Paper sx={{ flex: 1, overflow: 'hidden' }}>
-            <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-              <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                <LinkIcon sx={{ fontSize: 18, mr: 1, verticalAlign: 'middle' }} />
-                Link Details
-              </Typography>
-            </Box>
-            <Box sx={{ overflow: 'auto', maxHeight: '35vh', p: 1 }}>
-              {!selectedReq ? (
-                <Box sx={{ py: 4, textAlign: 'center' }}>
-                  <Typography color="textSecondary" variant="body2">
-                    Select a requirement to view its links
-                  </Typography>
-                </Box>
-              ) : loadingLinks ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-                  <CircularProgress size={24} />
-                </Box>
-              ) : selectedReqLinks.length === 0 ? (
-                <Box sx={{ py: 2, textAlign: 'center' }}>
-                  <Typography color="textSecondary" variant="body2">
-                    No links for {selectedReq.title}
-                  </Typography>
-                  <Button
-                    size="small"
-                    startIcon={<AddIcon />}
-                    onClick={() => handleOpenCreateDialog(selectedReq)}
-                    sx={{ mt: 1 }}
-                  >
-                    Create Link
-                  </Button>
-                </Box>
-              ) : (
-                <List dense disablePadding>
-                  {selectedReqLinks.map((link) => (
-                    <ListItem
-                      key={link.id}
-                      sx={{
-                        px: 1,
-                        py: 0.5,
-                        borderRadius: 1,
-                        mb: 0.5,
-                        backgroundColor: link.direction === 'outgoing' ? '#f0f7ff' : '#fff3e0',
-                      }}
-                      secondaryAction={
-                        <Tooltip title="Delete link">
-                          <IconButton
-                            edge="end"
-                            size="small"
-                            color="error"
-                            onClick={() => handleDeleteLink(link.id)}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      }
+          {/* Right Panel: View Links + Impact Analysis */}
+          <div className="flex-1 flex flex-col gap-2">
+            {/* View Links Panel */}
+            <div className="rounded-lg border bg-card overflow-hidden flex-1">
+              <div className="p-4 border-b">
+                <h2 className="text-base font-semibold flex items-center gap-1">
+                  <LinkIcon className="h-4 w-4" />
+                  Link Details
+                </h2>
+              </div>
+              <div className="overflow-auto max-h-[35vh] p-2">
+                {!selectedReq ? (
+                  <div className="py-4 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      Select a requirement to view its links
+                    </p>
+                  </div>
+                ) : loadingLinks ? (
+                  <div className="flex justify-center py-3">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : selectedReqLinks.length === 0 ? (
+                  <div className="py-2 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      No links for {selectedReq.title}
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-1"
+                      onClick={() => handleOpenCreateDialog(selectedReq)}
                     >
-                      <ListItemIcon sx={{ minWidth: 28 }}>
-                        {link.direction === 'outgoing' ? (
-                          <ArrowForwardIcon fontSize="small" color="primary" />
+                      <Plus className="h-4 w-4" />
+                      Create Link
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    {selectedReqLinks.map((link) => (
+                      <div
+                        key={link.id}
+                        className={`flex items-center gap-2 px-2 py-1 rounded mb-0.5 ${
+                          link.direction === 'outgoing'
+                            ? 'bg-blue-50'
+                            : 'bg-amber-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          {link.direction === 'outgoing' ? (
+                            <ArrowRight className="h-3.5 w-3.5 text-primary shrink-0" />
+                          ) : (
+                            <ArrowLeft className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                          )}
+                          <div className="flex flex-col min-w-0 flex-1">
+                            <div className="flex items-center gap-1">
+                              <span className="text-sm font-medium truncate">
+                                {link.direction === 'outgoing'
+                                  ? link.targetRequirementId
+                                  : link.sourceRequirementId}
+                              </span>
+                              <Badge
+                                variant="outline"
+                                className={`text-[0.65rem] h-5 ${LINK_TYPE_COLOR_CLASS[link.linkType] || ''}`}
+                              >
+                                {link.linkType}
+                              </Badge>
+                            </div>
+                            <span className="text-xs text-muted-foreground">
+                              {link.direction === 'outgoing' ? 'Outgoing' : 'Incoming'} · Doc: {link.targetDocumentId} · {link.createdAt ? new Date(link.createdAt).toLocaleDateString() : ''}
+                            </span>
+                          </div>
+                        </div>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => handleDeleteLink(link.id)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Delete link</TooltipContent>
+                        </Tooltip>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Impact Analysis Panel */}
+            <div className="rounded-lg border bg-card overflow-hidden flex-1">
+              <div className="p-4 border-b">
+                <h2 className="text-base font-semibold flex items-center gap-1">
+                  <Network className="h-4 w-4" />
+                  Impact Analysis
+                </h2>
+              </div>
+              <div className="overflow-auto max-h-[35vh] p-2">
+                {!selectedReq ? (
+                  <div className="py-4 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      Select a requirement, then click "Impact Analysis"
+                    </p>
+                  </div>
+                ) : computingImpact ? (
+                  <div className="flex justify-center py-3">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : !impactOpen ? (
+                  <div className="py-2 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      Click "Impact Analysis" to analyze dependencies
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    {/* Downstream Impact */}
+                    <Card className="mb-2 border rounded-lg">
+                      <CardContent className="py-2 px-3">
+                        <h3 className="text-sm font-semibold flex items-center gap-1 mb-1">
+                          <ArrowDown className="h-3.5 w-3.5 text-destructive" />
+                          Downstream Impact ({downstreamImpacts.length})
+                        </h3>
+                        {downstreamImpacts.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">
+                            No downstream dependencies found
+                          </p>
                         ) : (
-                          <ArrowBackIcon fontSize="small" color="warning" />
+                          <div className="flex flex-col gap-0.5">
+                            {downstreamImpacts.map((node, idx) => (
+                              <div
+                                key={`down-${idx}`}
+                                className={`flex items-center gap-2 px-2 py-0.5 rounded mb-0.5 ${
+                                  node.isDirect ? 'bg-red-50' : 'bg-amber-50'
+                                }`}
+                                style={{ marginLeft: `${node.depth * 2}rem` }}
+                              >
+                                <ArrowDown
+                                  className={`h-3.5 w-3.5 shrink-0 ${node.isDirect ? 'text-destructive' : 'text-amber-500'}`}
+                                />
+                                <div className="flex flex-col min-w-0">
+                                  <div className="flex items-center gap-1">
+                                    <span
+                                      className={`text-sm ${node.isDirect ? 'font-semibold' : 'font-normal'}`}
+                                    >
+                                      {node.requirementTitle}
+                                    </span>
+                                    <Badge
+                                      variant="outline"
+                                      className={`text-[0.6rem] h-4 ${LINK_TYPE_COLOR_CLASS[node.linkType] || ''}`}
+                                    >
+                                      {node.linkType}
+                                    </Badge>
+                                    {!node.isDirect && (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-[0.6rem] h-4 text-muted-foreground"
+                                      >
+                                        indirect
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <span className="text-xs text-muted-foreground">
+                                    {node.documentTitle} (depth {node.depth})
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         )}
-                      </ListItemIcon>
-                      <ListItemText
-                        primary={
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                              {link.direction === 'outgoing'
-                                ? link.targetRequirementId
-                                : link.sourceRequirementId}
-                            </Typography>
-                            <Chip
-                              label={link.linkType}
-                              size="small"
-                              color={LINK_TYPE_COLORS[link.linkType] || 'default'}
-                              sx={{ height: 20, fontSize: '0.65rem' }}
-                            />
-                          </Box>
-                        }
-                        secondary={
-                          <Typography variant="caption" color="textSecondary">
-                            {link.direction === 'outgoing' ? 'Outgoing' : 'Incoming'} · Doc: {link.targetDocumentId} · {link.createdAt ? new Date(link.createdAt).toLocaleDateString() : ''}
-                          </Typography>
-                        }
-                      />
-                    </ListItem>
-                  ))}
-                </List>
-              )}
-            </Box>
-          </Paper>
+                      </CardContent>
+                    </Card>
 
-          {/* Impact Analysis Panel */}
-          <Paper sx={{ flex: 1, overflow: 'hidden' }}>
-            <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-              <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                <DeviceHubIcon sx={{ fontSize: 18, mr: 1, verticalAlign: 'middle' }} />
-                Impact Analysis
-              </Typography>
-            </Box>
-            <Box sx={{ overflow: 'auto', maxHeight: '35vh', p: 1 }}>
-              {!selectedReq ? (
-                <Box sx={{ py: 4, textAlign: 'center' }}>
-                  <Typography color="textSecondary" variant="body2">
-                    Select a requirement, then click "Impact Analysis"
-                  </Typography>
-                </Box>
-              ) : computingImpact ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-                  <CircularProgress size={24} />
-                </Box>
-              ) : !impactOpen ? (
-                <Box sx={{ py: 2, textAlign: 'center' }}>
-                  <Typography color="textSecondary" variant="body2">
-                    Click "Impact Analysis" to analyze dependencies
-                  </Typography>
-                </Box>
-              ) : (
-                <Box>
-                  {/* Downstream Impact */}
-                  <Card variant="outlined" sx={{ mb: 1 }}>
-                    <CardContent sx={{ py: 1, '&:last-child': { pb: 1 } }}>
-                      <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
-                        <ArrowDownwardIcon fontSize="small" color="error" />
-                        Downstream Impact ({downstreamImpacts.length})
-                      </Typography>
-                      {downstreamImpacts.length === 0 ? (
-                        <Typography variant="caption" color="textSecondary">
-                          No downstream dependencies found
-                        </Typography>
-                      ) : (
-                        <List dense disablePadding>
-                          {downstreamImpacts.map((node, idx) => (
-                            <ListItem
-                              key={`down-${idx}`}
-                              sx={{
-                                px: 1,
-                                py: 0.25,
-                                borderRadius: 0.5,
-                                mb: 0.25,
-                                backgroundColor: node.isDirect ? '#ffebee' : '#fff3e0',
-                                ml: node.depth * 2,
-                              }}
-                            >
-                              <ListItemIcon sx={{ minWidth: 24 }}>
-                                <ArrowDownwardIcon
-                                  fontSize="small"
-                                  sx={{ fontSize: 14 }}
-                                  color={node.isDirect ? 'error' : 'warning'}
+                    {/* Upstream Dependencies */}
+                    <Card className="border rounded-lg">
+                      <CardContent className="py-2 px-3">
+                        <h3 className="text-sm font-semibold flex items-center gap-1 mb-1">
+                          <ArrowUp className="h-3.5 w-3.5 text-primary" />
+                          Upstream Dependencies ({upstreamDeps.length})
+                        </h3>
+                        {upstreamDeps.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">
+                            No upstream dependencies found
+                          </p>
+                        ) : (
+                          <div className="flex flex-col gap-0.5">
+                            {upstreamDeps.map((node, idx) => (
+                              <div
+                                key={`up-${idx}`}
+                                className={`flex items-center gap-2 px-2 py-0.5 rounded mb-0.5 ${
+                                  node.isDirect ? 'bg-blue-50' : 'bg-purple-50'
+                                }`}
+                                style={{ marginLeft: `${node.depth * 2}rem` }}
+                              >
+                                <ArrowUp
+                                  className={`h-3.5 w-3.5 shrink-0 ${node.isDirect ? 'text-primary' : 'text-secondary-foreground'}`}
                                 />
-                              </ListItemIcon>
-                              <ListItemText
-                                primary={
-                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                    <Typography
-                                      variant="body2"
-                                      sx={{
-                                        fontWeight: node.isDirect ? 600 : 400,
-                                        fontSize: '0.8rem',
-                                      }}
+                                <div className="flex flex-col min-w-0">
+                                  <div className="flex items-center gap-1">
+                                    <span
+                                      className={`text-sm ${node.isDirect ? 'font-semibold' : 'font-normal'}`}
                                     >
                                       {node.requirementTitle}
-                                    </Typography>
-                                    <Chip
-                                      label={node.linkType}
-                                      size="small"
-                                      color={LINK_TYPE_COLORS[node.linkType] || 'default'}
-                                      sx={{ height: 16, fontSize: '0.6rem' }}
-                                    />
-                                    {!node.isDirect && (
-                                      <Chip
-                                        label="indirect"
-                                        size="small"
-                                        variant="outlined"
-                                        sx={{ height: 16, fontSize: '0.6rem', color: '#999' }}
-                                      />
-                                    )}
-                                  </Box>
-                                }
-                                secondary={
-                                  <Typography variant="caption" color="textSecondary">
-                                    {node.documentTitle} (depth {node.depth})
-                                  </Typography>
-                                }
-                              />
-                            </ListItem>
-                          ))}
-                        </List>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  {/* Upstream Dependencies */}
-                  <Card variant="outlined">
-                    <CardContent sx={{ py: 1, '&:last-child': { pb: 1 } }}>
-                      <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
-                        <ArrowUpwardIcon fontSize="small" color="primary" />
-                        Upstream Dependencies ({upstreamDeps.length})
-                      </Typography>
-                      {upstreamDeps.length === 0 ? (
-                        <Typography variant="caption" color="textSecondary">
-                          No upstream dependencies found
-                        </Typography>
-                      ) : (
-                        <List dense disablePadding>
-                          {upstreamDeps.map((node, idx) => (
-                            <ListItem
-                              key={`up-${idx}`}
-                              sx={{
-                                px: 1,
-                                py: 0.25,
-                                borderRadius: 0.5,
-                                mb: 0.25,
-                                backgroundColor: node.isDirect ? '#e3f2fd' : '#f3e5f5',
-                                ml: node.depth * 2,
-                              }}
-                            >
-                              <ListItemIcon sx={{ minWidth: 24 }}>
-                                <ArrowUpwardIcon
-                                  fontSize="small"
-                                  sx={{ fontSize: 14 }}
-                                  color={node.isDirect ? 'primary' : 'secondary'}
-                                />
-                              </ListItemIcon>
-                              <ListItemText
-                                primary={
-                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                    <Typography
-                                      variant="body2"
-                                      sx={{
-                                        fontWeight: node.isDirect ? 600 : 400,
-                                        fontSize: '0.8rem',
-                                      }}
+                                    </span>
+                                    <Badge
+                                      variant="outline"
+                                      className={`text-[0.6rem] h-4 ${LINK_TYPE_COLOR_CLASS[node.linkType] || ''}`}
                                     >
-                                      {node.requirementTitle}
-                                    </Typography>
-                                    <Chip
-                                      label={node.linkType}
-                                      size="small"
-                                      color={LINK_TYPE_COLORS[node.linkType] || 'default'}
-                                      sx={{ height: 16, fontSize: '0.6rem' }}
-                                    />
+                                      {node.linkType}
+                                    </Badge>
                                     {!node.isDirect && (
-                                      <Chip
-                                        label="indirect"
-                                        size="small"
-                                        variant="outlined"
-                                        sx={{ height: 16, fontSize: '0.6rem', color: '#999' }}
-                                      />
+                                      <Badge
+                                        variant="outline"
+                                        className="text-[0.6rem] h-4 text-muted-foreground"
+                                      >
+                                        indirect
+                                      </Badge>
                                     )}
-                                  </Box>
-                                }
-                                secondary={
-                                  <Typography variant="caption" color="textSecondary">
+                                  </div>
+                                  <span className="text-xs text-muted-foreground">
                                     {node.documentTitle} (depth {node.depth})
-                                  </Typography>
-                                }
-                              />
-                            </ListItem>
-                          ))}
-                        </List>
-                      )}
-                    </CardContent>
-                  </Card>
-                </Box>
-              )}
-            </Box>
-          </Paper>
-        </Box>
-      </Box>
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
 
-      {/* Create Link Dialog */}
-      <Dialog open={createDialogOpen} onClose={handleCloseCreateDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <LinkIcon color="primary" />
-            Create Traceability Link
-          </Box>
-        </DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            {/* Source requirement info */}
-            <Paper variant="outlined" sx={{ p: 2, backgroundColor: '#f5f9ff' }}>
-              <Typography variant="caption" color="textSecondary">Source Requirement</Typography>
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                {createLinkSource?.title}
-              </Typography>
-              <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#666' }}>
-                {createLinkSource?.id}
-              </Typography>
-            </Paper>
+        {/* Create Link Dialog */}
+        <Dialog open={createDialogOpen} onOpenChange={(open) => { if (!open) handleCloseCreateDialog(); }}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <LinkIcon className="h-5 w-5 text-primary" />
+                Create Traceability Link
+              </DialogTitle>
+              <DialogDescription>
+                Create a new traceability link from the source requirement to a target.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-4 mt-1">
+              {/* Source requirement info */}
+              <div className="rounded-lg border p-4 bg-blue-50/50">
+                <p className="text-xs text-muted-foreground">Source Requirement</p>
+                <p className="text-sm font-semibold">
+                  {createLinkSource?.title}
+                </p>
+                <p className="text-xs font-mono text-muted-foreground">
+                  {createLinkSource?.id}
+                </p>
+              </div>
 
-            {/* Target Document */}
-            <FormControl fullWidth size="small">
-              <InputLabel>Target Document</InputLabel>
-              <Select
-                value={selectedTargetDoc}
-                label="Target Document"
-                onChange={(e) => handleTargetDocChange(e.target.value)}
+              {/* Target Document */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium">Target Document</label>
+                <Select
+                  value={selectedTargetDoc}
+                  onValueChange={handleTargetDocChange}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select document" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {documents.map((doc) => (
+                      <SelectItem key={doc.id} value={doc.id}>
+                        {doc.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Target Requirement */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium">Target Requirement</label>
+                <Select
+                  value={selectedTargetReq}
+                  onValueChange={setSelectedTargetReq}
+                  disabled={!selectedTargetDoc}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select requirement" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {targetDocReqs.map((req) => (
+                      <SelectItem key={req.id} value={req.id}>
+                        <div className="flex flex-col">
+                          <span className="text-sm">{req.title}</span>
+                          <span className="text-xs font-mono text-muted-foreground">
+                            {req.id}
+                          </span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Link Type */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium">Link Type</label>
+                <Select
+                  value={selectedLinkType}
+                  onValueChange={(v) => setSelectedLinkType(v as LinkType)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select link type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LINK_TYPES.map((lt) => (
+                      <SelectItem key={lt} value={lt}>
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant="outline"
+                            className={`text-[0.7rem] h-5 ${LINK_TYPE_COLOR_CLASS[lt] || ''}`}
+                          >
+                            {lt}
+                          </Badge>
+                          <span className="text-sm">{lt.replace(/_/g, ' ')}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={handleCloseCreateDialog}>Cancel</Button>
+              <Button
+                onClick={handleCreateLink}
+                disabled={!selectedTargetDoc || !selectedTargetReq || creating}
               >
-                {documents.map((doc) => (
-                  <MenuItem key={doc.id} value={doc.id}>
-                    {doc.title}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+                {creating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <LinkIcon className="h-4 w-4" />
+                )}
+                {creating ? 'Creating...' : 'Create Link'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-            {/* Target Requirement */}
-            <FormControl fullWidth size="small" disabled={!selectedTargetDoc}>
-              <InputLabel>Target Requirement</InputLabel>
-              <Select
-                value={selectedTargetReq}
-                label="Target Requirement"
-                onChange={(e) => setSelectedTargetReq(e.target.value)}
+        {/* Snackbar / Toast */}
+        {snackbar.open && (
+          <div className="fixed bottom-4 right-4 z-50">
+            <div
+              className={`flex items-center gap-2 rounded-lg border px-4 py-3 shadow-lg ${
+                snackbar.severity === 'success'
+                  ? 'bg-green-50 border-green-200 text-green-800'
+                  : snackbar.severity === 'error'
+                  ? 'bg-red-50 border-red-200 text-red-800'
+                  : 'bg-sky-50 border-sky-200 text-sky-800'
+              }`}
+            >
+              <span className="text-sm">{snackbar.message}</span>
+              <button
+                onClick={() => setSnackbar((prev) => ({ ...prev, open: false }))}
+                className="ml-2 rounded-sm opacity-70 hover:opacity-100"
               >
-                {targetDocReqs.map((req) => (
-                  <MenuItem key={req.id} value={req.id}>
-                    <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                      <Typography variant="body2">{req.title}</Typography>
-                      <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#666' }}>
-                        {req.id}
-                      </Typography>
-                    </Box>
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            {/* Link Type */}
-            <FormControl fullWidth size="small">
-              <InputLabel>Link Type</InputLabel>
-              <Select
-                value={selectedLinkType}
-                label="Link Type"
-                onChange={(e) => setSelectedLinkType(e.target.value as LinkType)}
-              >
-                {LINK_TYPES.map((lt) => (
-                  <MenuItem key={lt} value={lt}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Chip
-                        label={lt}
-                        size="small"
-                        color={LINK_TYPE_COLORS[lt]}
-                        sx={{ height: 20, fontSize: '0.7rem' }}
-                      />
-                      <Typography variant="body2">{lt.replace(/_/g, ' ')}</Typography>
-                    </Box>
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={handleCloseCreateDialog}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={handleCreateLink}
-            disabled={!selectedTargetDoc || !selectedTargetReq || creating}
-            startIcon={creating ? <CircularProgress size={16} /> : <LinkIcon />}
-          >
-            {creating ? 'Creating...' : 'Create Link'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Snackbar */}
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={4000}
-        onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-      >
-        <Alert
-          onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}
-          severity={snackbar.severity}
-          sx={{ width: '100%' }}
-        >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
-    </Box>
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </TooltipProvider>
   );
 };
 
