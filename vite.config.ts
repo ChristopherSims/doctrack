@@ -13,6 +13,9 @@ export default defineConfig({
     port: 3000,
     strictPort: false, // Allow fallback to next available port
     host: '127.0.0.1',
+    watch: {
+      ignored: ['**/backend/**'],
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:5000',

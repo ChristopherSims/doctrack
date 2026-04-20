@@ -6,7 +6,7 @@ from uuid import uuid4
 import time
 import random
 
-DB_PATH = os.path.join(os.path.expanduser('~'), '.doctrack', 'doctrack.db')
+DB_PATH = os.environ.get('DOCTRACK_DB_PATH', os.path.join(os.path.expanduser('~'), '.doctrack', 'doctrack.db'))
 
 def ensure_db_dir():
     """Ensure the database directory exists"""
@@ -202,12 +202,35 @@ def init_db():
     )
     ''')
     
+    # Create edit_history table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS edit_history (
+        id TEXT PRIMARY KEY,
+        requirementId TEXT NOT NULL,
+        userId TEXT NOT NULL,
+        userName TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        field TEXT NOT NULL,
+        oldValue TEXT,
+        newValue TEXT,
+        branchName TEXT,
+        FOREIGN KEY (requirementId) REFERENCES requirements(id)
+    )
+    ''')
+    
     # Version control indexes
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_commits_doc_branch ON commits(documentId, branchName)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_branches_doc_name ON branches(documentId, name)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_tags_doc ON tags(documentId)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_audit_resource ON audit_log(resourceId)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_edit_history_req ON edit_history(requirementId)')
+    
+    # Migration: add lastEditedBy column to requirements table if not exists
+    cursor.execute('PRAGMA table_info(requirements)')
+    req_columns2 = [col[1] for col in cursor.fetchall()]
+    if 'lastEditedBy' not in req_columns2:
+        cursor.execute('ALTER TABLE requirements ADD COLUMN lastEditedBy TEXT')
     
     # Create default 'main' branch for each document that doesn't have one
     cursor.execute('''
@@ -330,9 +353,13 @@ def delete_document_db(doc_id):
     conn.close()
 
 # Requirement Functions
-def generate_requirement_id(level, sequence_number):
-    """Generate requirement ID in format level[sequenceNumber] e.g., 1.1.1[50]"""
-    return f"{level}[{sequence_number}]"
+def generate_requirement_id(doc_id, level, sequence_number):
+    """Generate requirement ID scoped per-document.
+    Format: DOC-{shortDocId}-{level}[{seq}] e.g., DOC-1b7ffb8b-1.1[1]
+    This prevents ID collisions when different documents use the same level numbers.
+    """
+    short_doc = doc_id[:8] if doc_id else 'unknown'
+    return f"DOC-{short_doc}-{level}[{sequence_number}]"
 
 def get_next_sequence_number(doc_id, level):
     """Get the next sequence number for a given level in a document"""
@@ -395,7 +422,7 @@ def create_requirement_db(data):
     level = data.get('level', '1')
     doc_id = data.get('documentId')
     seq_num = get_next_sequence_number(doc_id, level)
-    req_id = generate_requirement_id(level, seq_num)
+    req_id = generate_requirement_id(doc_id, level, seq_num)
     now = datetime.utcnow().isoformat()
     
     conn = get_connection()
@@ -442,11 +469,14 @@ def update_requirement_db(req_id, data):
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Check if requirement exists
+    # Check if requirement exists and fetch old values
     cursor.execute('SELECT * FROM requirements WHERE id = ?', (req_id,))
-    if not cursor.fetchone():
+    old_row = cursor.fetchone()
+    if not old_row:
         conn.close()
         return None
+    
+    old_req = dict(old_row)
     
     now = datetime.utcnow().isoformat()
     updates = []
@@ -474,6 +504,13 @@ def update_requirement_db(req_id, data):
         updates.append('related_requirements = ?')
         params.append(json.dumps(data['related_requirements']))
     
+    # lastEditedBy
+    user_id = data.get('userId', data.get('lastEditedBy', 'system'))
+    user_name = data.get('userName', data.get('lastEditedBy', 'system'))
+    if 'lastEditedBy' in data:
+        updates.append('lastEditedBy = ?')
+        params.append(data['lastEditedBy'])
+    
     if updates:
         updates.append("updatedAt = ?")
         params.append(now)
@@ -482,6 +519,32 @@ def update_requirement_db(req_id, data):
         query = f"UPDATE requirements SET {', '.join(updates)} WHERE id = ?"
         cursor.execute(query, params)
         conn.commit()
+        
+        # Record edit history for changed fields
+        # Get the document's currentBranch for branchName
+        cursor.execute('SELECT currentBranch FROM documents WHERE id = ?', (old_req['documentId'],))
+        doc_row = cursor.fetchone()
+        branch_name = doc_row['currentBranch'] if doc_row else 'main'
+        
+        # Compare and record changes
+        all_fields_to_check = fields + ['tags', 'custom_fields', 'related_requirements']
+        for field in all_fields_to_check:
+            if field in data:
+                if field in ('tags', 'custom_fields', 'related_requirements'):
+                    old_val = old_req.get(field)
+                    new_val = json.dumps(data[field])
+                    # Normalize old_val for comparison
+                    if old_val is not None:
+                        try:
+                            old_val = json.dumps(json.loads(old_val))
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                else:
+                    old_val = old_req.get(field)
+                    new_val = data[field]
+                
+                if str(old_val) != str(new_val):
+                    add_edit_history(req_id, user_id, user_name, field, old_val, new_val, branch_name)
     
     # Fetch and return the updated requirement
     cursor.execute('SELECT * FROM requirements WHERE id = ?', (req_id,))
@@ -516,6 +579,9 @@ def batch_update_requirements(updates_list):
     json_fields = ['tags', 'custom_fields', 'related_requirements']
     all_updateable_fields = plain_fields + json_fields
     
+    # Collect edit history entries to insert after the main transaction
+    edit_history_entries = []
+    
     try:
         for item in updates_list:
             req_id = item.get('id')
@@ -523,11 +589,14 @@ def batch_update_requirements(updates_list):
                 errors.append({'id': None, 'error': 'Missing requirement id'})
                 continue
             
-            # Check if requirement exists
+            # Check if requirement exists and fetch old values
             cursor.execute('SELECT * FROM requirements WHERE id = ?', (req_id,))
-            if not cursor.fetchone():
+            old_row = cursor.fetchone()
+            if not old_row:
                 errors.append({'id': req_id, 'error': 'Requirement not found'})
                 continue
+            
+            old_req = dict(old_row)
             
             set_clauses = []
             params = []
@@ -540,6 +609,13 @@ def batch_update_requirements(updates_list):
                     else:
                         params.append(item[field])
             
+            # lastEditedBy
+            user_id = item.get('userId', item.get('lastEditedBy', 'system'))
+            user_name = item.get('userName', item.get('lastEditedBy', 'system'))
+            if 'lastEditedBy' in item:
+                set_clauses.append('lastEditedBy = ?')
+                params.append(item['lastEditedBy'])
+            
             if not set_clauses:
                 continue
             
@@ -551,10 +627,55 @@ def batch_update_requirements(updates_list):
             try:
                 cursor.execute(query, params)
                 updated_ids.append(req_id)
+                
+                # Get the document's currentBranch for branchName
+                cursor.execute('SELECT currentBranch FROM documents WHERE id = ?', (old_req['documentId'],))
+                doc_row = cursor.fetchone()
+                branch_name = doc_row['currentBranch'] if doc_row else 'main'
+                
+                # Collect field changes for edit history
+                for field in all_updateable_fields:
+                    if field in item:
+                        if field in json_fields:
+                            old_val = old_req.get(field)
+                            new_val = json.dumps(item[field])
+                            # Normalize old_val for comparison
+                            if old_val is not None:
+                                try:
+                                    old_val = json.dumps(json.loads(old_val))
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
+                        else:
+                            old_val = old_req.get(field)
+                            new_val = item[field]
+                        
+                        if str(old_val) != str(new_val):
+                            edit_history_entries.append({
+                                'requirement_id': req_id,
+                                'user_id': user_id,
+                                'user_name': user_name,
+                                'field': field,
+                                'old_value': old_val,
+                                'new_value': new_val,
+                                'branch_name': branch_name
+                            })
             except Exception as e:
                 errors.append({'id': req_id, 'error': str(e)})
         
         conn.commit()
+        
+        # Insert edit history entries (after main transaction succeeds)
+        if edit_history_entries:
+            for entry in edit_history_entries:
+                add_edit_history(
+                    entry['requirement_id'],
+                    entry['user_id'],
+                    entry['user_name'],
+                    entry['field'],
+                    entry['old_value'],
+                    entry['new_value'],
+                    entry['branch_name']
+                )
     except Exception as e:
         conn.rollback()
         errors.append({'id': None, 'error': f'Transaction failed: {str(e)}'})
@@ -1028,6 +1149,72 @@ def get_audit_log(resource_id=None, limit=100):
     conn.close()
     return [dict(row) for row in rows]
 
+# --- Edit History Functions ---
+
+def add_edit_history(requirement_id, user_id, user_name, field, old_value, new_value, branch_name=None):
+    """Add an edit history entry for a requirement field change.
+    
+    Returns the edit history entry dict.
+    """
+    entry_id = str(uuid4())
+    now = datetime.utcnow().isoformat()
+    
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+    INSERT INTO edit_history (id, requirementId, userId, userName, timestamp, field, oldValue, newValue, branchName)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (entry_id, requirement_id, user_id, user_name, now, field, 
+          str(old_value) if old_value is not None else None,
+          str(new_value) if new_value is not None else None,
+          branch_name))
+    
+    conn.commit()
+    
+    cursor.execute('SELECT * FROM edit_history WHERE id = ?', (entry_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row)
+
+def get_edit_history(requirement_id, limit=100):
+    """Get edit history entries for a specific requirement.
+    
+    Returns list of edit history dicts ordered by timestamp DESC, limited to `limit` results.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute(
+        'SELECT * FROM edit_history WHERE requirementId = ? ORDER BY timestamp DESC LIMIT ?',
+        (requirement_id, limit)
+    )
+    
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def get_edit_history_for_document(document_id, limit=500):
+    """Get edit history entries for all requirements in a document.
+    
+    Joins edit_history with requirements by requirementId, filtered by documentId.
+    Returns list of edit history dicts ordered by timestamp DESC, limited to `limit` results.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT eh.* FROM edit_history eh
+        INNER JOIN requirements r ON eh.requirementId = r.id
+        WHERE r.documentId = ?
+        ORDER BY eh.timestamp DESC
+        LIMIT ?
+    ''', (document_id, limit))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
 # --- Traceability Functions ---
 
 def create_traceability_link(source_req_id, target_req_id, target_doc_id, link_type):
@@ -1050,7 +1237,8 @@ def create_traceability_link(source_req_id, target_req_id, target_doc_id, link_t
     return dict(row)
 
 def get_traceability_links(req_id):
-    """Get all traceability links where the requirement is source or target"""
+    """Get all traceability links where the requirement is source or target,
+    enriched with requirement titles, levels, and document names."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
@@ -1058,8 +1246,44 @@ def get_traceability_links(req_id):
         (req_id, req_id)
     )
     rows = cursor.fetchall()
+    
+    links = [dict(row) for row in rows]
+    
+    # Enrich with titles and document names
+    for link in links:
+        # Source requirement info
+        cursor.execute('SELECT title, level, documentId FROM requirements WHERE id = ?', (link['sourceRequirementId'],))
+        src_row = cursor.fetchone()
+        if src_row:
+            link['sourceReqTitle'] = src_row['title']
+            link['sourceReqLevel'] = src_row['level']
+            link['sourceDocumentId'] = src_row['documentId']
+            cursor.execute('SELECT title FROM documents WHERE id = ?', (src_row['documentId'],))
+            src_doc = cursor.fetchone()
+            link['sourceDocTitle'] = src_doc['title'] if src_doc else 'Unknown'
+        else:
+            link['sourceReqTitle'] = link['sourceRequirementId']
+            link['sourceReqLevel'] = ''
+            link['sourceDocumentId'] = ''
+            link['sourceDocTitle'] = 'Unknown'
+        
+        # Target requirement info
+        cursor.execute('SELECT title, level, documentId FROM requirements WHERE id = ?', (link['targetRequirementId'],))
+        tgt_row = cursor.fetchone()
+        if tgt_row:
+            link['targetReqTitle'] = tgt_row['title']
+            link['targetReqLevel'] = tgt_row['level']
+            link['targetDocumentId'] = tgt_row['documentId'] if not link.get('targetDocumentId') else link['targetDocumentId']
+            cursor.execute('SELECT title FROM documents WHERE id = ?', (link['targetDocumentId'],))
+            tgt_doc = cursor.fetchone()
+            link['targetDocTitle'] = tgt_doc['title'] if tgt_doc else 'Unknown'
+        else:
+            link['targetReqTitle'] = link['targetRequirementId']
+            link['targetReqLevel'] = ''
+            link['targetDocTitle'] = 'Unknown'
+    
     conn.close()
-    return [dict(row) for row in rows]
+    return links
 
 def delete_traceability_link(link_id):
     """Delete a traceability link"""

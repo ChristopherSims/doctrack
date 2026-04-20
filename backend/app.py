@@ -8,6 +8,7 @@ from database import create_branch, get_branches, checkout_branch, merge_branche
 from database import create_tag, get_tags
 from database import create_traceability_link, get_traceability_links, delete_traceability_link
 from database import add_audit_log, get_audit_log
+from database import add_edit_history, get_edit_history, get_edit_history_for_document
 from export import export_csv, export_word, export_pdf
 import os
 import json
@@ -477,6 +478,30 @@ def audit_log_route():
     except Exception as e:
         logger.error(f"Error fetching audit log: {e}")
         return jsonify({'success': False, 'error': 'Failed to fetch audit log'}), 500
+
+# --- Edit History ---
+
+@app.route('/api/requirements/<req_id>/history', methods=['GET'])
+def requirement_history(req_id):
+    try:
+        history = get_edit_history(req_id)
+        return jsonify({'success': True, 'data': history})
+    except Exception as e:
+        logger.error(f"Error fetching edit history for requirement {req_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch edit history'}), 500
+
+@app.route('/api/documents/<doc_id>/history', methods=['GET'])
+def document_history(doc_id):
+    try:
+        # Verify document exists
+        document = get_document_db(doc_id)
+        if not document:
+            return jsonify({'success': False, 'error': 'Document not found'}), 404
+        history = get_edit_history_for_document(doc_id)
+        return jsonify({'success': True, 'data': history})
+    except Exception as e:
+        logger.error(f"Error fetching edit history for document {doc_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch document edit history'}), 500
 
 # --- Health check ---
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Navigation from './components/Navigation';
 import DocumentsPage from './pages/DocumentsPage';
 import RequirementsPage from './pages/RequirementsPage';
@@ -17,6 +17,8 @@ interface AppState {
   selectedDocumentId: string | null;
   selectedDocumentTitle: string;
   currentBranch: string;
+  highlightReqId: string | null;
+  navigateToDocId: string | null;
 }
 
 const App: React.FC = () => {
@@ -25,6 +27,8 @@ const App: React.FC = () => {
     selectedDocumentId: null,
     selectedDocumentTitle: '',
     currentBranch: 'main',
+    highlightReqId: null,
+    navigateToDocId: null,
   });
 
   const handleNavigate = (page: Page) => {
@@ -37,6 +41,8 @@ const App: React.FC = () => {
       selectedDocumentId: id,
       selectedDocumentTitle: title,
       currentBranch: 'main',
+      highlightReqId: null,
+      navigateToDocId: null,
     });
   };
 
@@ -46,11 +52,52 @@ const App: React.FC = () => {
       currentPage: 'documents',
       selectedDocumentId: null,
       selectedDocumentTitle: '',
+      highlightReqId: null,
+      navigateToDocId: null,
     }));
   };
 
   const handleBranchChange = (branchName: string) => {
     setState(prev => ({ ...prev, currentBranch: branchName }));
+  };
+
+  const handleNavigateToDocument = (docId: string, docTitle: string) => {
+    setState(prev => ({
+      ...prev,
+      currentPage: 'requirements',
+      selectedDocumentId: docId,
+      selectedDocumentTitle: docTitle,
+      highlightReqId: null,
+      navigateToDocId: null,
+    }));
+  };
+
+  const handleNavigateToRequirement = (documentId: string, requirementId: string) => {
+    // Find the document title from API or use a placeholder
+    setState(prev => ({
+      ...prev,
+      currentPage: 'requirements',
+      selectedDocumentId: documentId,
+      selectedDocumentTitle: prev.selectedDocumentTitle,
+      highlightReqId: requirementId,
+      navigateToDocId: documentId,
+    }));
+  };
+
+  // When navigateToDocId is set, fetch the document title
+  useEffect(() => {
+    if (state.navigateToDocId && state.navigateToDocId !== state.selectedDocumentId) {
+      // Document ID changed - need to fetch title
+      // The RequirementsPage will handle this via its own loadData
+    }
+    if (state.navigateToDocId) {
+      setState(prev => ({ ...prev, navigateToDocId: null }));
+    }
+  }, [state.navigateToDocId]);
+
+  // Clear highlight after it's been consumed
+  const handleClearHighlight = () => {
+    setState(prev => ({ ...prev, highlightReqId: null }));
   };
 
   const renderPage = () => {
@@ -59,7 +106,12 @@ const App: React.FC = () => {
         return <DocumentsPage onSelectDocument={handleSelectDocument} />;
       case 'requirements':
         return state.selectedDocumentId ? (
-          <RequirementsPage documentId={state.selectedDocumentId} onBack={handleBackToDocuments} />
+          <RequirementsPage
+            documentId={state.selectedDocumentId}
+            onBack={handleBackToDocuments}
+            highlightReqId={state.highlightReqId ?? undefined}
+            onClearHighlight={handleClearHighlight}
+          />
         ) : null;
       case 'history':
         return state.selectedDocumentId ? <HistoryPage documentId={state.selectedDocumentId} documentTitle={state.selectedDocumentTitle} /> : null;
@@ -72,7 +124,13 @@ const App: React.FC = () => {
       case 'diff':
         return state.selectedDocumentId ? <DiffViewPage documentId={state.selectedDocumentId} documentTitle={state.selectedDocumentTitle} /> : null;
       case 'traceability':
-        return state.selectedDocumentId ? <TraceabilityPage documentId={state.selectedDocumentId} documentTitle={state.selectedDocumentTitle} /> : null;
+        return state.selectedDocumentId ? (
+          <TraceabilityPage
+            documentId={state.selectedDocumentId}
+            documentTitle={state.selectedDocumentTitle}
+            onNavigateToRequirement={handleNavigateToRequirement}
+          />
+        ) : null;
       case 'audit':
         return <AuditLogPage documentId={state.selectedDocumentId ?? undefined} />;
       default:
@@ -87,6 +145,7 @@ const App: React.FC = () => {
         onNavigate={handleNavigate}
         selectedDocumentTitle={state.selectedDocumentTitle}
         currentBranch={state.currentBranch}
+        onNavigateToDocument={handleNavigateToDocument}
       />
       <main className="flex-1 overflow-auto">
         {renderPage()}

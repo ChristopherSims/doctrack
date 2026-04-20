@@ -299,3 +299,18 @@ export async function getAuditLog(
   const response = await fetch(url);
   return response.json();
 }
+
+// Edit History API
+export async function getRequirementHistory(
+  reqId: string
+): Promise<ApiResponse<any[]>> {
+  const response = await fetch(`${API_BASE_URL}/requirements/${encodeURIComponent(reqId)}/history`);
+  return response.json();
+}
+
+export async function getDocumentHistory(
+  docId: string
+): Promise<ApiResponse<any[]>> {
+  const response = await fetch(`${API_BASE_URL}/documents/${encodeURIComponent(docId)}/history`);
+  return response.json();
+}

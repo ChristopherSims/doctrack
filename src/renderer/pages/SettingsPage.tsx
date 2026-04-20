@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Settings as SettingsIcon, Save as SaveIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,26 +13,58 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
+const defaultSettings = {
+  apiBaseUrl: 'http://localhost:5000/api',
+  autoSave: true,
+  autoSaveInterval: 30,
+  showStatusBar: true,
+  darkMode: false,
+  confirmBeforeDelete: true,
+  defaultPriority: 'medium',
+  defaultStatus: 'draft',
+  maxUndoLevels: 50,
+};
+
+const applyDarkMode = (dark: boolean) => {
+  document.documentElement.classList.toggle('dark', dark);
+};
+
 const SettingsPage: React.FC = () => {
-  const [settings, setSettings] = useState({
-    apiBaseUrl: 'http://localhost:5000/api',
-    autoSave: true,
-    autoSaveInterval: 30,
-    showStatusBar: true,
-    darkMode: false,
-    confirmBeforeDelete: true,
-    defaultPriority: 'medium',
-    defaultStatus: 'draft',
-    maxUndoLevels: 50,
-  });
-
+  const [settings, setSettings] = useState(defaultSettings);
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const handleSave = () => {
-    // TODO: Persist settings via Electron store or backend
-    localStorage.setItem('doctrack-settings', JSON.stringify(settings));
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+  // Load settings from AppData on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await window.electronAPI.loadSettings();
+        const loaded = { ...defaultSettings, ...data };
+        setSettings(loaded);
+        applyDarkMode(loaded.darkMode);
+      } catch {
+        // Fallback: use defaults
+      }
+      setLoading(false);
+    })();
+  }, []);
+
+  const updateSettings = (patch: Partial<typeof settings>) => {
+    setSettings(prev => {
+      const next = { ...prev, ...patch };
+      if ('darkMode' in patch) applyDarkMode(patch.darkMode!);
+      return next;
+    });
+  };
+
+  const handleSave = async () => {
+    try {
+      await window.electronAPI.saveSettings(settings);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      console.error('Failed to save settings:', err);
+    }
   };
 
   return (
@@ -61,7 +93,7 @@ const SettingsPage: React.FC = () => {
           <Input
             id="apiBaseUrl"
             value={settings.apiBaseUrl}
-            onChange={(e) => setSettings({ ...settings, apiBaseUrl: e.target.value })}
+            onChange={(e) => updateSettings({ apiBaseUrl: e.target.value })}
           />
           <p className="text-xs text-muted-foreground">Backend Flask server URL</p>
         </div>
@@ -76,7 +108,7 @@ const SettingsPage: React.FC = () => {
             <Switch
               id="autoSave"
               checked={settings.autoSave}
-              onCheckedChange={(checked) => setSettings({ ...settings, autoSave: checked })}
+              onCheckedChange={(checked) => updateSettings({ autoSave: checked })}
             />
             <Label htmlFor="autoSave">Auto-save changes</Label>
           </div>
@@ -87,7 +119,7 @@ const SettingsPage: React.FC = () => {
                 id="autoSaveInterval"
                 type="number"
                 value={settings.autoSaveInterval}
-                onChange={(e) => setSettings({ ...settings, autoSaveInterval: parseInt(e.target.value) || 30 })}
+                onChange={(e) => updateSettings({ autoSaveInterval: parseInt(e.target.value) || 30 })}
               />
             </div>
           )}
@@ -95,7 +127,7 @@ const SettingsPage: React.FC = () => {
             <Switch
               id="confirmBeforeDelete"
               checked={settings.confirmBeforeDelete}
-              onCheckedChange={(checked) => setSettings({ ...settings, confirmBeforeDelete: checked })}
+              onCheckedChange={(checked) => updateSettings({ confirmBeforeDelete: checked })}
             />
             <Label htmlFor="confirmBeforeDelete">Confirm before deleting</Label>
           </div>
@@ -105,7 +137,7 @@ const SettingsPage: React.FC = () => {
               id="maxUndoLevels"
               type="number"
               value={settings.maxUndoLevels}
-              onChange={(e) => setSettings({ ...settings, maxUndoLevels: parseInt(e.target.value) || 50 })}
+              onChange={(e) => updateSettings({ maxUndoLevels: parseInt(e.target.value) || 50 })}
             />
           </div>
         </div>
@@ -120,7 +152,7 @@ const SettingsPage: React.FC = () => {
             <Switch
               id="darkMode"
               checked={settings.darkMode}
-              onCheckedChange={(checked) => setSettings({ ...settings, darkMode: checked })}
+              onCheckedChange={(checked) => updateSettings({ darkMode: checked })}
             />
             <Label htmlFor="darkMode">Dark mode</Label>
           </div>
@@ -128,7 +160,7 @@ const SettingsPage: React.FC = () => {
             <Switch
               id="showStatusBar"
               checked={settings.showStatusBar}
-              onCheckedChange={(checked) => setSettings({ ...settings, showStatusBar: checked })}
+              onCheckedChange={(checked) => updateSettings({ showStatusBar: checked })}
             />
             <Label htmlFor="showStatusBar">Show status bar</Label>
           </div>
@@ -144,7 +176,7 @@ const SettingsPage: React.FC = () => {
             <Label>Default priority</Label>
             <Select
               value={settings.defaultPriority}
-              onValueChange={(value) => setSettings({ ...settings, defaultPriority: value })}
+              onValueChange={(value) => updateSettings({ defaultPriority: value })}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -160,7 +192,7 @@ const SettingsPage: React.FC = () => {
             <Label>Default status</Label>
             <Select
               value={settings.defaultStatus}
-              onValueChange={(value) => setSettings({ ...settings, defaultStatus: value })}
+              onValueChange={(value) => updateSettings({ defaultStatus: value })}
             >
               <SelectTrigger>
                 <SelectValue />

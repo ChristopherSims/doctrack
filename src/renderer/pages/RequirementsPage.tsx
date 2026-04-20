@@ -20,6 +20,7 @@ import {
   Link2,
   ChevronRight,
   ChevronDown,
+  ChevronUp,
   Search,
   Download,
   Loader2,
@@ -59,9 +60,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 
-import type { Requirement } from '../../types/index';
+import type { Requirement, EditHistoryEntry } from '../../types/index';
 import * as API from '../../api/api';
+import RichTextEditor from '@/components/RichTextEditor';
 import {
   getLevelDepth,
   getParentLevels,
@@ -73,6 +76,8 @@ import {
 interface RequirementsPageProps {
   documentId: string;
   onBack: () => void;
+  highlightReqId?: string;
+  onClearHighlight?: () => void;
 }
 
 const STATUS_OPTIONS = ['draft', 'review', 'approved', 'implemented', 'verified'] as const;
@@ -100,6 +105,14 @@ const statusColorMap: Record<string, string> = {
   implemented: 'text-blue-600',
   verified: 'text-cyan-600',
 };
+
+/** CSS for rendered HTML in the description column */
+const descriptionHtmlStyles = `
+  .req-desc-html { max-height: 80px; overflow: hidden; font-size: 0.875rem; line-height: 1.25rem; }
+  .req-desc-html table { font-size: 0.75rem; border-collapse: collapse; }
+  .req-desc-html table td, .req-desc-html table th { border: 1px solid var(--border); padding: 2px 4px; }
+  .req-desc-html img { max-height: 60px; }
+`;
 
 const priorityColorMap: Record<string, string> = {
   high: 'text-red-600',
@@ -206,7 +219,7 @@ function EditableCell({
   );
 }
 
-const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack }) => {
+const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack, highlightReqId, onClearHighlight }) => {
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [loading, setLoading] = useState(true);
   const [documentTitle, setDocumentTitle] = useState('');
@@ -241,6 +254,12 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
   });
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 50 });
 
+  // Edit history state
+  const [selectedRequirement, setSelectedRequirement] = useState<Requirement | null>(null);
+  const [editHistory, setEditHistory] = useState<EditHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -258,6 +277,13 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
     loadData();
   }, [documentId]);
 
+  // Apply highlight requirement filter when highlightReqId changes
+  useEffect(() => {
+    if (highlightReqId) {
+      setGlobalFilter(highlightReqId);
+    }
+  }, [highlightReqId]);
+
   // Auto-hide snackbar
   useEffect(() => {
     if (snackbar.open) {
@@ -266,6 +292,25 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
     }
     return undefined;
   }, [snackbar.open]);
+
+  // Load edit history when a requirement is selected
+  useEffect(() => {
+    if (selectedRequirement) {
+      setHistoryLoading(true);
+      API.getRequirementHistory(selectedRequirement.id)
+        .then((result) => {
+          if (result.success) {
+            setEditHistory(result.data || []);
+          } else {
+            setEditHistory([]);
+          }
+        })
+        .catch(() => setEditHistory([]))
+        .finally(() => setHistoryLoading(false));
+    } else {
+      setEditHistory([]);
+    }
+  }, [selectedRequirement]);
 
   // Compute parent levels from current requirements
   const parentLevelSet = useMemo(() => {
@@ -596,17 +641,30 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
       accessorKey: 'description',
       header: 'Description',
       size: 350,
-      cell: ({ row }) => (
-        <EditableCell
-          value={row.original.description || ''}
-          rowId={row.original.id}
-          field="description"
-          onCommit={handleCellCommit}
-          displayRenderer={(v) => (
-            <span className="truncate text-sm">{v || '\u2014'}</span>
-          )}
-        />
-      ),
+      cell: ({ row }) => {
+        const desc = row.original.description || '';
+        return (
+          <EditableCell
+            value={desc}
+            rowId={row.original.id}
+            field="description"
+            onCommit={handleCellCommit}
+            displayRenderer={(v) => {
+              const val = v || '';
+              const isHtml = /<[a-z][\s\S]*>/i.test(val);
+              if (isHtml) {
+                return (
+                  <div
+                    className="req-desc-html"
+                    dangerouslySetInnerHTML={{ __html: val }}
+                  />
+                );
+              }
+              return <span className="truncate text-sm">{val || '\u2014'}</span>;
+            }}
+          />
+        );
+      },
     },
     {
       accessorKey: 'status',
@@ -807,6 +865,8 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
 
   return (
     <div className="flex flex-col h-full">
+      {/* Scoped styles for HTML description rendering */}
+      <style dangerouslySetInnerHTML={{ __html: descriptionHtmlStyles }} />
       {/* ─── Document Top Bar ─── */}
       <div className="flex-shrink-0 border-b bg-card shadow-sm p-4">
         <div className="flex items-center gap-3 mb-1">
@@ -860,13 +920,23 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
             <Input
               placeholder="Search..."
               value={globalFilter ?? ''}
-              onChange={(e) => setGlobalFilter(e.target.value)}
+              onChange={(e) => {
+                setGlobalFilter(e.target.value);
+                if (onClearHighlight && highlightReqId) {
+                  onClearHighlight();
+                }
+              }}
               className="h-8 w-48 pl-7 text-sm"
             />
             {globalFilter && (
               <button
                 className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                onClick={() => setGlobalFilter('')}
+                onClick={() => {
+                  setGlobalFilter('');
+                  if (onClearHighlight && highlightReqId) {
+                    onClearHighlight();
+                  }
+                }}
               >
                 <X className="size-3" />
               </button>
@@ -914,11 +984,13 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
             {table.getRowModel().rows.length ? (
               table.getRowModel().rows.map(row => {
                 const isDirty = dirtyRows.has(row.original.id);
+                const isHighlighted = highlightReqId === row.original.id;
                 return (
                   <TableRow
                     key={row.id}
                     data-row-id={row.original.id}
-                    className={`${isDirty ? 'bg-orange-50 dark:bg-orange-950/20' : ''} hover:bg-muted/50`}
+                    className={`${isDirty ? 'bg-orange-50 dark:bg-orange-950/20' : ''} ${isHighlighted ? 'ring-2 ring-primary bg-primary/5' : ''} ${selectedRequirement?.id === row.original.id ? 'bg-accent/50' : ''} hover:bg-muted/50 cursor-pointer`}
+                    onClick={() => setSelectedRequirement(row.original)}
                   >
                     {row.getVisibleCells().map(cell => (
                       <TableCell key={cell.id} className="p-0">
@@ -951,6 +1023,19 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
             <>
               <span>|</span>
               <span className="text-orange-600 font-medium">{dirtyRows.size} unsaved</span>
+            </>
+          )}
+          {selectedRequirement && (
+            <>
+              <span>|</span>
+              <span className="text-primary font-medium">Selected: {selectedRequirement.title}</span>
+              <button
+                className="text-muted-foreground hover:text-foreground ml-1"
+                onClick={() => setSelectedRequirement(null)}
+                title="Deselect"
+              >
+                <X className="size-3" />
+              </button>
             </>
           )}
         </div>
@@ -998,6 +1083,76 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
           </select>
         </div>
       </div>
+
+      {/* ─── Edit History Panel ─── */}
+      {selectedRequirement && (
+        <Card className="flex-shrink-0 mx-3 my-2">
+          <CardHeader
+            className="py-2 px-3 cursor-pointer flex flex-row items-center justify-between"
+            onClick={() => setHistoryOpen(!historyOpen)}
+          >
+            <span className="text-sm font-medium">Edit History</span>
+            {historyOpen ? (
+              <ChevronUp className="size-4 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="size-4 text-muted-foreground" />
+            )}
+          </CardHeader>
+          {historyOpen && (
+            <CardContent className="px-3 pb-3 pt-0">
+              {historyLoading ? (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                  <span className="ml-2 text-sm text-muted-foreground">Loading history...</span>
+                </div>
+              ) : editHistory.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No edit history</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-muted-foreground">
+                        <th className="pb-1.5 pr-3 font-medium">Field</th>
+                        <th className="pb-1.5 pr-3 font-medium">Old Value</th>
+                        <th className="pb-1.5 pr-3 font-medium">New Value</th>
+                        <th className="pb-1.5 pr-3 font-medium">User</th>
+                        <th className="pb-1.5 pr-3 font-medium">Branch</th>
+                        <th className="pb-1.5 font-medium">Timestamp</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {editHistory.map((entry) => (
+                        <tr key={entry.id} className="border-b last:border-0">
+                          <td className="py-1.5 pr-3 font-medium">{entry.field}</td>
+                          <td className="py-1.5 pr-3 text-muted-foreground max-w-[200px] truncate">
+                            {entry.oldValue ?? '\u2014'}
+                          </td>
+                          <td className="py-1.5 pr-3 max-w-[200px] truncate">
+                            {entry.newValue ?? '\u2014'}
+                          </td>
+                          <td className="py-1.5 pr-3">{entry.userName || entry.userId}</td>
+                          <td className="py-1.5 pr-3 font-mono text-xs">{entry.branchName || '\u2014'}</td>
+                          <td className="py-1.5 text-xs text-muted-foreground whitespace-nowrap">
+                            {entry.timestamp
+                              ? new Date(entry.timestamp).toLocaleString(undefined, {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              : '\u2014'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          )}
+        </Card>
+      )}
 
       {/* ─── Context Menu ─── */}
       {contextMenu && (
@@ -1085,11 +1240,10 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
             </div>
             <div>
               <Label className="mb-1.5">Description</Label>
-              <Textarea
+              <RichTextEditor
                 value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                rows={4}
-                required
+                onChange={(html) => setFormData({ ...formData, description: html })}
+                placeholder="Enter requirement description..."
               />
             </div>
             <div className="flex gap-3">

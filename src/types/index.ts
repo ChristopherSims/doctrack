@@ -130,6 +130,14 @@ export interface TraceabilityLink {
   targetDocumentId: string;
   linkType: string;
   createdAt: string;
+  // Enriched fields from backend
+  sourceReqTitle?: string;
+  sourceReqLevel?: string;
+  sourceDocumentId?: string;
+  sourceDocTitle?: string;
+  targetReqTitle?: string;
+  targetReqLevel?: string;
+  targetDocTitle?: string;
 }
 
 export interface DocumentStats {
@@ -144,4 +152,16 @@ export interface BatchUpdateResponse {
   errors: { id: string; error: string }[];
   updated: number;
   failed: number;
+}
+
+export interface EditHistoryEntry {
+  id: string;
+  requirementId: string;
+  userId: string;
+  userName: string;
+  timestamp: string;
+  field: string;
+  oldValue: string | null;
+  newValue: string | null;
+  branchName: string;
 }

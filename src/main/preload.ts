@@ -1,10 +1,11 @@
-// Preload script - minimal CommonJS version
-// The app uses HTTP REST API instead of IPC, so this is just a placeholder
-// for future IPC needs or security context setup
+// Preload script - exposes Electron IPC to renderer via contextBridge
 
-const { contextBridge } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  // Placeholder - actual API communication happens via HTTP
   version: '1.0.0',
+
+  // Settings persistence via AppData
+  loadSettings: () => ipcRenderer.invoke('settings:load'),
+  saveSettings: (settings: Record<string, unknown>) => ipcRenderer.invoke('settings:save', settings),
 });

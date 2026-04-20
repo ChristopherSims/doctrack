@@ -22,5 +22,5 @@
     "sourceMap": true
   },
   "include": ["src/main"],
-  "exclude": ["src/renderer", "node_modules", "dist"]
+  "exclude": ["src/renderer", "node_modules", "dist", "backend"]
 }

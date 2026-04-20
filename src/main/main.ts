@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, dialog, shell } from 'electron';
+import { app, BrowserWindow, Menu, dialog, shell, ipcMain } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -17,6 +17,32 @@ const FLASK_PORT = 5000;
 const FLASK_URL = `http://localhost:${FLASK_PORT}`;
 let VITE_PORT = 3000;
 let VITE_URL = `http://localhost:${VITE_PORT}`;
+
+const SETTINGS_PATH = path.join(os.homedir(), '.doctrack', 'settings.json');
+
+function loadAppSettings(): Record<string, unknown> {
+  try {
+    if (fs.existsSync(SETTINGS_PATH)) {
+      const data = fs.readFileSync(SETTINGS_PATH, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.warn('Failed to load settings:', err);
+  }
+  return {};
+}
+
+function saveAppSettings(settings: Record<string, unknown>): void {
+  try {
+    const dir = path.dirname(SETTINGS_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Failed to save settings:', err);
+  }
+}
 
 // Window state persistence
 interface WindowState {
@@ -212,6 +238,10 @@ app.on('ready', async (): Promise<void> => {
     console.log('Creating menu...');
     createMenu();
     console.log('✓ Menu created');
+
+    // Register IPC handlers for settings
+    ipcMain.handle('settings:load', () => loadAppSettings());
+    ipcMain.handle('settings:save', (_event, settings: Record<string, unknown>) => saveAppSettings(settings));
   } catch (error) {
     console.error('Failed to start application:', error);
     app.quit();

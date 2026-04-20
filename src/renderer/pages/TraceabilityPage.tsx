@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -16,14 +17,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import {
   Tooltip,
   TooltipContent,
@@ -42,6 +35,9 @@ import {
   ArrowUp,
   Loader2,
   X,
+  ChevronRight,
+  ChevronDown,
+  Search,
 } from 'lucide-react';
 import type { Requirement, TraceabilityLink, Document } from '../../types/index';
 import * as API from '../../api/api';
@@ -49,17 +45,18 @@ import * as API from '../../api/api';
 interface TraceabilityPageProps {
   documentId: string;
   documentTitle: string;
+  onNavigateToRequirement?: (documentId: string, requirementId: string) => void;
 }
 
 const LINK_TYPES = ['implements', 'verifies', 'traces_to', 'derives_from', 'satisfies'] as const;
 type LinkType = typeof LINK_TYPES[number];
 
 const LINK_TYPE_COLOR_CLASS: Record<string, string> = {
-  implements: 'bg-blue-100 text-blue-800 border-blue-300',
-  verifies: 'bg-green-100 text-green-800 border-green-300',
-  traces_to: 'bg-sky-100 text-sky-800 border-sky-300',
-  derives_from: 'bg-amber-100 text-amber-800 border-amber-300',
-  satisfies: 'bg-purple-100 text-purple-800 border-purple-300',
+  implements: 'bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30',
+  verifies: 'bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/30',
+  traces_to: 'bg-sky-500/15 text-sky-700 dark:text-sky-400 border-sky-500/30',
+  derives_from: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30',
+  satisfies: 'bg-purple-500/15 text-purple-700 dark:text-purple-400 border-purple-500/30',
 };
 
 interface LinkWithDetails extends TraceabilityLink {
@@ -80,12 +77,96 @@ interface ImpactNode {
   isDirect: boolean;
 }
 
-const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documentTitle }) => {
+// --- Tree Node ---
+interface TreeNode {
+  req: Requirement;
+  children: TreeNode[];
+}
+
+/**
+ * Build a tree from requirements using their `level` field.
+ * Level patterns: "1", "1.1", "1.1.1", "2", "2.1", etc.
+ * Sort by level, then nest children under parents.
+ */
+function buildTree(requirements: Requirement[]): TreeNode[] {
+  const sorted = [...requirements].sort((a, b) => {
+    const aParts = (a.level || '1').split('.').map(Number);
+    const bParts = (b.level || '1').split('.').map(Number);
+    for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+      const av = aParts[i] || 0;
+      const bv = bParts[i] || 0;
+      if (av !== bv) return av - bv;
+    }
+    return 0;
+  });
+
+  const rootNodes: TreeNode[] = [];
+  const nodeMap = new Map<string, TreeNode>();
+
+  for (const req of sorted) {
+    const node: TreeNode = { req, children: [] };
+    nodeMap.set(req.id, node);
+  }
+
+  for (const req of sorted) {
+    const node = nodeMap.get(req.id)!;
+    const parentLevel = getParentLevel(req.level || '1');
+
+    if (parentLevel === null) {
+      // Top-level node
+      rootNodes.push(node);
+    } else {
+      // Find parent by level
+      const parent = findNodeByLevel(rootNodes, parentLevel);
+      if (parent) {
+        parent.children.push(node);
+      } else {
+        // Can't find parent, put at root
+        rootNodes.push(node);
+      }
+    }
+  }
+
+  return rootNodes;
+}
+
+function getParentLevel(level: string): string | null {
+  const parts = level.split('.');
+  if (parts.length <= 1) return null;
+  return parts.slice(0, -1).join('.');
+}
+
+function findNodeByLevel(nodes: TreeNode[], level: string): TreeNode | null {
+  for (const node of nodes) {
+    if ((node.req.level || '1') === level) return node;
+    const found = findNodeByLevel(node.children, level);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Flatten tree to get all requirement IDs (for expand-all / search) */
+function flattenTreeIds(nodes: TreeNode[]): string[] {
+  const ids: string[] = [];
+  for (const node of nodes) {
+    ids.push(node.req.id);
+    ids.push(...flattenTreeIds(node.children));
+  }
+  return ids;
+}
+
+// --- Component ---
+
+const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documentTitle, onNavigateToRequirement }) => {
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedReq, setSelectedReq] = useState<Requirement | null>(null);
   const [linksMap, setLinksMap] = useState<Record<string, LinkWithDetails[]>>({});
+
+  // Search & expand state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   // Create link dialog
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -109,6 +190,55 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
     severity: 'success' | 'error' | 'info';
   }>({ open: false, message: '', severity: 'info' });
 
+  // Build tree from requirements
+  const tree = useMemo(() => buildTree(requirements), [requirements]);
+
+  // When search changes, auto-expand matching paths
+  useEffect(() => {
+    if (searchQuery.trim()) {
+      const matchingIds = new Set<string>();
+      const q = searchQuery.toLowerCase();
+
+      function searchNodes(nodes: TreeNode[], ancestorIds: string[]): boolean {
+        let anyMatch = false;
+        for (const node of nodes) {
+          const matches =
+            node.req.title.toLowerCase().includes(q) ||
+            node.req.id.toLowerCase().includes(q) ||
+            (node.req.description || '').toLowerCase().includes(q);
+
+          const childMatch = searchNodes(node.children, [...ancestorIds, node.req.id]);
+
+          if (matches || childMatch) {
+            anyMatch = true;
+            // Expand all ancestors
+            for (const aid of ancestorIds) {
+              matchingIds.add(aid);
+            }
+            if (node.children.length > 0) {
+              matchingIds.add(node.req.id);
+            }
+          }
+        }
+        return anyMatch;
+      }
+
+      searchNodes(tree, []);
+      setExpandedIds(prev => {
+        const next = new Set(prev);
+        for (const id of matchingIds) next.add(id);
+        return next;
+      });
+    }
+  }, [searchQuery, tree]);
+
+  // Auto-expand top-level on first load
+  useEffect(() => {
+    if (tree.length > 0 && expandedIds.size === 0) {
+      setExpandedIds(new Set(tree.filter(n => n.children.length > 0).map(n => n.req.id)));
+    }
+  }, [tree]);
+
   useEffect(() => {
     loadData();
   }, [documentId]);
@@ -124,7 +254,6 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
       if (reqResult.success) {
         const reqs = reqResult.data || [];
         setRequirements(reqs);
-        // Load traceability links for all requirements
         await loadAllLinks(reqs);
       }
 
@@ -142,7 +271,6 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
 
   const loadAllLinks = async (reqs: Requirement[]) => {
     const newLinksMap: Record<string, LinkWithDetails[]> = {};
-    // Batch requests in chunks to avoid overwhelming the server
     const chunkSize = 10;
     for (let i = 0; i < reqs.length; i += chunkSize) {
       const chunk = reqs.slice(i, i + chunkSize);
@@ -238,7 +366,7 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
     }
   };
 
-  // Load detailed links for a single requirement (for the View Links panel)
+  // Load detailed links for a single requirement
   const [selectedReqLinks, setSelectedReqLinks] = useState<LinkWithDetails[]>([]);
   const [loadingLinks, setLoadingLinks] = useState(false);
 
@@ -273,44 +401,47 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
     setImpactOpen(false);
   };
 
-  // Impact Analysis - recursive traversal
+  const toggleExpand = (reqId: string) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(reqId)) {
+        next.delete(reqId);
+      } else {
+        next.add(reqId);
+      }
+      return next;
+    });
+  };
+
+  const expandAll = () => {
+    setExpandedIds(new Set(flattenTreeIds(tree)));
+  };
+
+  const collapseAll = () => {
+    setExpandedIds(new Set());
+  };
+
+  // Impact Analysis
   const computeDownstreamImpact = useCallback(async (reqId: string, depth: number, visited: Set<string>, results: ImpactNode[]) => {
     if (visited.has(reqId)) return;
     visited.add(reqId);
-
     try {
       const result = await API.getTraceabilityLinks(reqId);
       if (!result.success) return;
       const links: TraceabilityLink[] = result.data || [];
-
       for (const link of links) {
-        // Outgoing links: source is this req -> downstream impact
         if (link.sourceRequirementId === reqId) {
           const targetId = link.targetRequirementId;
           if (!visited.has(targetId)) {
-            // Get requirement details
             let reqTitle = targetId;
             let docTitle = link.targetDocumentId;
             try {
               const reqResult = await API.getRequirement(targetId);
-              if (reqResult.success && reqResult.data) {
-                reqTitle = reqResult.data.title || targetId;
-              }
+              if (reqResult.success && reqResult.data) reqTitle = reqResult.data.title || targetId;
               const docResult = await API.getDocument(link.targetDocumentId);
-              if (docResult.success && docResult.data) {
-                docTitle = docResult.data.title || link.targetDocumentId;
-              }
+              if (docResult.success && docResult.data) docTitle = docResult.data.title || link.targetDocumentId;
             } catch { /* use defaults */ }
-
-            results.push({
-              requirementId: targetId,
-              requirementTitle: reqTitle,
-              documentId: link.targetDocumentId,
-              documentTitle: docTitle,
-              linkType: link.linkType,
-              depth,
-              isDirect: depth === 1,
-            });
+            results.push({ requirementId: targetId, requirementTitle: reqTitle, documentId: link.targetDocumentId, documentTitle: docTitle, linkType: link.linkType, depth, isDirect: depth === 1 });
             await computeDownstreamImpact(targetId, depth + 1, visited, results);
           }
         }
@@ -323,14 +454,11 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
   const computeUpstreamDeps = useCallback(async (reqId: string, depth: number, visited: Set<string>, results: ImpactNode[]) => {
     if (visited.has(reqId)) return;
     visited.add(reqId);
-
     try {
       const result = await API.getTraceabilityLinks(reqId);
       if (!result.success) return;
       const links: TraceabilityLink[] = result.data || [];
-
       for (const link of links) {
-        // Incoming links: target is this req -> upstream dependency
         if (link.targetRequirementId === reqId) {
           const sourceId = link.sourceRequirementId;
           if (!visited.has(sourceId)) {
@@ -342,21 +470,10 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
                 reqTitle = reqResult.data.title || sourceId;
                 const docId = reqResult.data.documentId;
                 const docResult = await API.getDocument(docId);
-                if (docResult.success && docResult.data) {
-                  docTitle = docResult.data.title || docId;
-                }
+                if (docResult.success && docResult.data) docTitle = docResult.data.title || docId;
               }
             } catch { /* use defaults */ }
-
-            results.push({
-              requirementId: sourceId,
-              requirementTitle: reqTitle,
-              documentId: '',
-              documentTitle: docTitle,
-              linkType: link.linkType,
-              depth,
-              isDirect: depth === 1,
-            });
+            results.push({ requirementId: sourceId, requirementTitle: reqTitle, documentId: '', documentTitle: docTitle, linkType: link.linkType, depth, isDirect: depth === 1 });
             await computeUpstreamDeps(sourceId, depth + 1, visited, results);
           }
         }
@@ -372,7 +489,6 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
     setImpactOpen(true);
     setDownstreamImpacts([]);
     setUpstreamDeps([]);
-
     try {
       const downstream: ImpactNode[] = [];
       const upstream: ImpactNode[] = [];
@@ -393,6 +509,139 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
     return (linksMap[reqId] || []).length;
   };
 
+  // --- Filter tree by search ---
+  const filteredTree = useMemo(() => {
+    if (!searchQuery.trim()) return tree;
+    const q = searchQuery.toLowerCase();
+
+    function filterNodes(nodes: TreeNode[]): TreeNode[] {
+      const result: TreeNode[] = [];
+      for (const node of nodes) {
+        const filteredChildren = filterNodes(node.children);
+        const selfMatch =
+          node.req.title.toLowerCase().includes(q) ||
+          node.req.id.toLowerCase().includes(q) ||
+          (node.req.description || '').toLowerCase().includes(q);
+        if (selfMatch || filteredChildren.length > 0) {
+          result.push({ req: node.req, children: filteredChildren });
+        }
+      }
+      return result;
+    }
+
+    return filterNodes(tree);
+  }, [tree, searchQuery]);
+
+  // --- Render tree node ---
+  const renderTreeNode = (node: TreeNode, depth: number) => {
+    const isSelected = selectedReq?.id === node.req.id;
+    const isExpanded = expandedIds.has(node.req.id);
+    const hasChildren = node.children.length > 0;
+    const linkCount = getLinkCount(node.req.id);
+
+    return (
+      <React.Fragment key={node.req.id}>
+        <div
+          className={`flex items-center gap-1 px-2 py-1.5 cursor-pointer rounded-sm mx-1 mb-0.5 transition-colors ${
+            isSelected
+              ? 'bg-primary/10 ring-1 ring-primary/30'
+              : 'hover:bg-accent/50'
+          }`}
+          style={{ paddingLeft: `${depth * 20 + 8}px` }}
+          onClick={() => handleSelectReq(node.req)}
+        >
+          {/* Expand/collapse toggle */}
+          {hasChildren ? (
+            <button
+              className="shrink-0 p-0.5 rounded hover:bg-accent"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleExpand(node.req.id);
+              }}
+            >
+              {isExpanded ? (
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+              )}
+            </button>
+          ) : (
+            <span className="w-[22px] shrink-0" />
+          )}
+
+          {/* Level badge */}
+          <span className="text-xs font-mono font-semibold text-muted-foreground shrink-0 min-w-[28px]">
+            {node.req.level || '1'}
+          </span>
+
+          {/* Title */}
+          <span className={`text-sm truncate flex-1 ${isSelected ? 'font-semibold text-primary' : 'font-medium'}`}>
+            {node.req.title}
+          </span>
+
+          {/* Link count badge */}
+          {linkCount > 0 ? (
+            <Badge className="text-[0.6rem] h-4 px-1.5 font-semibold shrink-0">{linkCount}</Badge>
+          ) : (
+            <Badge variant="outline" className="text-[0.6rem] h-4 px-1.5 text-muted-foreground shrink-0">0</Badge>
+          )}
+
+          {/* Add link button */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="shrink-0 opacity-0 group-hover:opacity-100 hover:opacity-100"
+                style={{ opacity: undefined }}  // always visible for now
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenCreateDialog(node.req);
+                }}
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Create link</TooltipContent>
+          </Tooltip>
+        </div>
+
+        {/* Expanded link chips for selected node */}
+        {isSelected && (linksMap[node.req.id] || []).length > 0 && (
+          <div className="px-2 py-1 mx-2 mb-1" style={{ paddingLeft: `${depth * 20 + 28}px` }}>
+            <div className="flex flex-wrap gap-1">
+              {(linksMap[node.req.id] || []).map((link: TraceabilityLink) => {
+                const isOutgoing = link.sourceRequirementId === node.req.id;
+                const docTitle = isOutgoing ? (link.targetDocTitle || 'Unknown') : (link.sourceDocTitle || 'Unknown');
+                const reqLevel = isOutgoing ? (link.targetReqLevel || '') : (link.sourceReqLevel || '');
+                return (
+                  <Badge
+                    key={link.id}
+                    variant="outline"
+                    className={`text-xs cursor-pointer hover:bg-accent ${LINK_TYPE_COLOR_CLASS[link.linkType] || ''}`}
+                    onClick={() => {
+                      const targetDocId = isOutgoing ? link.targetDocumentId : (link.sourceDocumentId || '');
+                      const targetReqId = isOutgoing ? link.targetRequirementId : link.sourceRequirementId;
+                      if (onNavigateToRequirement && targetDocId) {
+                        onNavigateToRequirement(targetDocId, targetReqId);
+                      }
+                    }}
+                  >
+                    <LinkIcon className="h-3 w-3" />
+                    {docTitle} → {reqLevel}
+                  </Badge>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Children */}
+        {hasChildren && isExpanded && node.children.map(child => renderTreeNode(child, depth + 1))}
+      </React.Fragment>
+    );
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center items-center min-h-[80vh]">
@@ -403,9 +652,9 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
 
   return (
     <TooltipProvider>
-      <div className="p-3 flex flex-col gap-3">
+      <div className="p-3 flex flex-col gap-3 h-full">
         {/* Header */}
-        <div className="rounded-lg border bg-card p-4">
+        <div className="rounded-lg border bg-card p-4 shrink-0">
           <div className="flex items-center gap-2">
             <Network className="h-7 w-7 text-primary" />
             <div className="flex-1">
@@ -434,117 +683,59 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
           </div>
         </div>
 
-        <div className="flex gap-3 flex-1">
-          {/* Traceability Matrix */}
-          <div className="flex-[2]">
-            <div className="rounded-lg border bg-card overflow-hidden">
-              <div className="p-4 border-b">
-                <h2 className="text-base font-semibold">
-                  Requirements & Links
-                </h2>
-                <p className="text-xs text-muted-foreground">
-                  Click a requirement to view its links. Use the + button to create a new link.
-                </p>
+        <div className="flex gap-3 flex-1 min-h-0">
+          {/* Left Panel: Hierarchical Tree */}
+          <div className="flex-[2] flex flex-col min-w-0">
+            <div className="rounded-lg border bg-card overflow-hidden flex flex-col flex-1">
+              <div className="p-3 border-b shrink-0">
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="text-base font-semibold">
+                    Requirements & Links
+                  </h2>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="sm" className="text-xs h-6 px-2" onClick={expandAll}>
+                      Expand All
+                    </Button>
+                    <Button variant="ghost" size="sm" className="text-xs h-6 px-2" onClick={collapseAll}>
+                      Collapse All
+                    </Button>
+                  </div>
+                </div>
+                {/* Search bar */}
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    placeholder="Search requirements..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-8 h-8 text-sm"
+                  />
+                  {searchQuery && (
+                    <button
+                      className="absolute right-2 top-1.5"
+                      onClick={() => setSearchQuery('')}
+                    >
+                      <X className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="max-h-[60vh] overflow-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="font-bold w-[80px]">Level</TableHead>
-                      <TableHead className="font-bold">Requirement</TableHead>
-                      <TableHead className="font-bold w-[100px]">Links</TableHead>
-                      <TableHead className="font-bold w-[80px]">Action</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {requirements.map((req) => {
-                      const isSelected = selectedReq?.id === req.id;
-                      const linkCount = getLinkCount(req.id);
-                      const reqLinks = linksMap[req.id] || [];
-                      return (
-                        <React.Fragment key={req.id}>
-                          <TableRow
-                            data-state={isSelected ? 'selected' : undefined}
-                            onClick={() => handleSelectReq(req)}
-                            className="cursor-pointer"
-                          >
-                            <TableCell>
-                              <span className="text-sm font-semibold font-mono">
-                                {req.level || '1'}
-                              </span>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex flex-col">
-                                <span className="text-sm font-medium">
-                                  {req.title}
-                                </span>
-                                <span className="text-xs text-muted-foreground font-mono">
-                                  {req.id}
-                                </span>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              {linkCount > 0 ? (
-                                <Badge className="font-semibold">{linkCount}</Badge>
-                              ) : (
-                                <Badge variant="outline" className="text-muted-foreground">0</Badge>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon-xs"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleOpenCreateDialog(req);
-                                    }}
-                                  >
-                                    <Plus className="h-3.5 w-3.5" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Create link</TooltipContent>
-                              </Tooltip>
-                            </TableCell>
-                          </TableRow>
-                          {/* Expand to show link chips inline */}
-                          {isSelected && reqLinks.length > 0 && (
-                            <TableRow>
-                              <TableCell colSpan={4} className="py-0 bg-blue-50/50">
-                                <div className="px-2 py-1 flex flex-wrap gap-1">
-                                  {reqLinks.map((link: TraceabilityLink) => (
-                                    <Badge
-                                      key={link.id}
-                                      variant="outline"
-                                      className={`text-xs ${LINK_TYPE_COLOR_CLASS[link.linkType] || ''}`}
-                                    >
-                                      <LinkIcon className="h-3 w-3" />
-                                      {link.linkType} → {link.targetRequirementId}
-                                    </Badge>
-                                  ))}
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
-                    {requirements.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={4} className="text-center py-4">
-                          <span className="text-muted-foreground">No requirements found</span>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
+              <div className="overflow-auto flex-1 p-1">
+                {filteredTree.length === 0 ? (
+                  <div className="py-6 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      {searchQuery ? 'No requirements match your search' : 'No requirements found'}
+                    </p>
+                  </div>
+                ) : (
+                  filteredTree.map(node => renderTreeNode(node, 0))
+                )}
               </div>
             </div>
           </div>
 
           {/* Right Panel: View Links + Impact Analysis */}
-          <div className="flex-1 flex flex-col gap-2">
+          <div className="flex-1 flex flex-col gap-2 min-w-0">
             {/* View Links Panel */}
             <div className="rounded-lg border bg-card overflow-hidden flex-1">
               <div className="p-4 border-b">
@@ -581,55 +772,72 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
                   </div>
                 ) : (
                   <div className="flex flex-col gap-1">
-                    {selectedReqLinks.map((link) => (
-                      <div
-                        key={link.id}
-                        className={`flex items-center gap-2 px-2 py-1 rounded mb-0.5 ${
-                          link.direction === 'outgoing'
-                            ? 'bg-blue-50'
-                            : 'bg-amber-50'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 flex-1 min-w-0">
-                          {link.direction === 'outgoing' ? (
-                            <ArrowRight className="h-3.5 w-3.5 text-primary shrink-0" />
-                          ) : (
-                            <ArrowLeft className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                          )}
-                          <div className="flex flex-col min-w-0 flex-1">
-                            <div className="flex items-center gap-1">
-                              <span className="text-sm font-medium truncate">
-                                {link.direction === 'outgoing'
-                                  ? link.targetRequirementId
-                                  : link.sourceRequirementId}
+                    {selectedReqLinks.map((link) => {
+                      const isOutgoing = link.direction === 'outgoing';
+                      const docTitle = isOutgoing ? (link.targetDocTitle || 'Unknown') : (link.sourceDocTitle || 'Unknown');
+                      const reqLevel = isOutgoing ? (link.targetReqLevel || '') : (link.sourceReqLevel || '');
+                      const reqTitle = isOutgoing ? (link.targetReqTitle || '') : (link.sourceReqTitle || '');
+                      return (
+                        <div
+                          key={link.id}
+                          className={`flex items-center gap-2 px-2 py-1.5 rounded mb-0.5 ${
+                            isOutgoing
+                              ? 'bg-blue-500/10 dark:bg-blue-500/15'
+                              : 'bg-amber-500/10 dark:bg-amber-500/15'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            {isOutgoing ? (
+                              <ArrowRight className="h-3.5 w-3.5 text-primary shrink-0" />
+                            ) : (
+                              <ArrowLeft className="h-3.5 w-3.5 text-amber-500 dark:text-amber-400 shrink-0" />
+                            )}
+                            <div className="flex flex-col min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                {onNavigateToRequirement ? (
+                                  <button
+                                    className="text-sm font-medium truncate text-primary hover:underline cursor-pointer text-left"
+                                    onClick={() => {
+                                      const targetDocId = isOutgoing ? link.targetDocumentId : (link.sourceDocumentId || '');
+                                      const targetReqId = isOutgoing ? link.targetRequirementId : link.sourceRequirementId;
+                                      if (targetDocId) onNavigateToRequirement(targetDocId, targetReqId);
+                                    }}
+                                  >
+                                    {docTitle} → {reqLevel}
+                                  </button>
+                                ) : (
+                                  <span className="text-sm font-medium truncate">
+                                    {docTitle} → {reqLevel}
+                                  </span>
+                                )}
+                                <Badge
+                                  variant="outline"
+                                  className={`text-[0.65rem] h-5 ${LINK_TYPE_COLOR_CLASS[link.linkType] || ''}`}
+                                >
+                                  {link.linkType}
+                                </Badge>
+                              </div>
+                              <span className="text-xs text-muted-foreground">
+                                {reqTitle} · {isOutgoing ? 'Outgoing' : 'Incoming'}
                               </span>
-                              <Badge
-                                variant="outline"
-                                className={`text-[0.65rem] h-5 ${LINK_TYPE_COLOR_CLASS[link.linkType] || ''}`}
-                              >
-                                {link.linkType}
-                              </Badge>
                             </div>
-                            <span className="text-xs text-muted-foreground">
-                              {link.direction === 'outgoing' ? 'Outgoing' : 'Incoming'} · Doc: {link.targetDocumentId} · {link.createdAt ? new Date(link.createdAt).toLocaleDateString() : ''}
-                            </span>
                           </div>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                className="text-destructive hover:text-destructive"
+                                onClick={() => handleDeleteLink(link.id)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Delete link</TooltipContent>
+                          </Tooltip>
                         </div>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon-xs"
-                              className="text-destructive hover:text-destructive"
-                              onClick={() => handleDeleteLink(link.id)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>Delete link</TooltipContent>
-                        </Tooltip>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -670,46 +878,39 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
                           Downstream Impact ({downstreamImpacts.length})
                         </h3>
                         {downstreamImpacts.length === 0 ? (
-                          <p className="text-xs text-muted-foreground">
-                            No downstream dependencies found
-                          </p>
+                          <p className="text-xs text-muted-foreground">No downstream dependencies found</p>
                         ) : (
                           <div className="flex flex-col gap-0.5">
                             {downstreamImpacts.map((node, idx) => (
                               <div
                                 key={`down-${idx}`}
-                                className={`flex items-center gap-2 px-2 py-0.5 rounded mb-0.5 ${
-                                  node.isDirect ? 'bg-red-50' : 'bg-amber-50'
-                                }`}
+                                className={`flex items-center gap-2 px-2 py-0.5 rounded mb-0.5 ${node.isDirect ? 'bg-red-500/10 dark:bg-red-500/15' : 'bg-amber-500/10 dark:bg-amber-500/15'}`}
                                 style={{ marginLeft: `${node.depth * 2}rem` }}
                               >
-                                <ArrowDown
-                                  className={`h-3.5 w-3.5 shrink-0 ${node.isDirect ? 'text-destructive' : 'text-amber-500'}`}
-                                />
+                                <ArrowDown className={`h-3.5 w-3.5 shrink-0 ${node.isDirect ? 'text-destructive' : 'text-amber-500 dark:text-amber-400'}`} />
                                 <div className="flex flex-col min-w-0">
                                   <div className="flex items-center gap-1">
-                                    <span
-                                      className={`text-sm ${node.isDirect ? 'font-semibold' : 'font-normal'}`}
-                                    >
-                                      {node.requirementTitle}
-                                    </span>
-                                    <Badge
-                                      variant="outline"
-                                      className={`text-[0.6rem] h-4 ${LINK_TYPE_COLOR_CLASS[node.linkType] || ''}`}
-                                    >
+                                    {onNavigateToRequirement ? (
+                                      <button
+                                        className={`text-sm ${node.isDirect ? 'font-semibold' : 'font-normal'} text-primary hover:underline cursor-pointer text-left`}
+                                        onClick={() => onNavigateToRequirement(node.documentId, node.requirementId)}
+                                      >
+                                        {node.documentTitle} → {node.requirementTitle}
+                                      </button>
+                                    ) : (
+                                      <span className={`text-sm ${node.isDirect ? 'font-semibold' : 'font-normal'}`}>
+                                        {node.documentTitle} → {node.requirementTitle}
+                                      </span>
+                                    )}
+                                    <Badge variant="outline" className={`text-[0.6rem] h-4 ${LINK_TYPE_COLOR_CLASS[node.linkType] || ''}`}>
                                       {node.linkType}
                                     </Badge>
                                     {!node.isDirect && (
-                                      <Badge
-                                        variant="outline"
-                                        className="text-[0.6rem] h-4 text-muted-foreground"
-                                      >
-                                        indirect
-                                      </Badge>
+                                      <Badge variant="outline" className="text-[0.6rem] h-4 text-muted-foreground">indirect</Badge>
                                     )}
                                   </div>
                                   <span className="text-xs text-muted-foreground">
-                                    {node.documentTitle} (depth {node.depth})
+                                    depth {node.depth}
                                   </span>
                                 </div>
                               </div>
@@ -727,46 +928,39 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
                           Upstream Dependencies ({upstreamDeps.length})
                         </h3>
                         {upstreamDeps.length === 0 ? (
-                          <p className="text-xs text-muted-foreground">
-                            No upstream dependencies found
-                          </p>
+                          <p className="text-xs text-muted-foreground">No upstream dependencies found</p>
                         ) : (
                           <div className="flex flex-col gap-0.5">
                             {upstreamDeps.map((node, idx) => (
                               <div
                                 key={`up-${idx}`}
-                                className={`flex items-center gap-2 px-2 py-0.5 rounded mb-0.5 ${
-                                  node.isDirect ? 'bg-blue-50' : 'bg-purple-50'
-                                }`}
+                                className={`flex items-center gap-2 px-2 py-0.5 rounded mb-0.5 ${node.isDirect ? 'bg-blue-500/10 dark:bg-blue-500/15' : 'bg-purple-500/10 dark:bg-purple-500/15'}`}
                                 style={{ marginLeft: `${node.depth * 2}rem` }}
                               >
-                                <ArrowUp
-                                  className={`h-3.5 w-3.5 shrink-0 ${node.isDirect ? 'text-primary' : 'text-secondary-foreground'}`}
-                                />
+                                <ArrowUp className={`h-3.5 w-3.5 shrink-0 ${node.isDirect ? 'text-primary' : 'text-purple-500 dark:text-purple-400'}`} />
                                 <div className="flex flex-col min-w-0">
                                   <div className="flex items-center gap-1">
-                                    <span
-                                      className={`text-sm ${node.isDirect ? 'font-semibold' : 'font-normal'}`}
-                                    >
-                                      {node.requirementTitle}
-                                    </span>
-                                    <Badge
-                                      variant="outline"
-                                      className={`text-[0.6rem] h-4 ${LINK_TYPE_COLOR_CLASS[node.linkType] || ''}`}
-                                    >
+                                    {onNavigateToRequirement ? (
+                                      <button
+                                        className={`text-sm ${node.isDirect ? 'font-semibold' : 'font-normal'} text-primary hover:underline cursor-pointer text-left`}
+                                        onClick={() => onNavigateToRequirement(node.documentId, node.requirementId)}
+                                      >
+                                        {node.documentTitle} → {node.requirementTitle}
+                                      </button>
+                                    ) : (
+                                      <span className={`text-sm ${node.isDirect ? 'font-semibold' : 'font-normal'}`}>
+                                        {node.documentTitle} → {node.requirementTitle}
+                                      </span>
+                                    )}
+                                    <Badge variant="outline" className={`text-[0.6rem] h-4 ${LINK_TYPE_COLOR_CLASS[node.linkType] || ''}`}>
                                       {node.linkType}
                                     </Badge>
                                     {!node.isDirect && (
-                                      <Badge
-                                        variant="outline"
-                                        className="text-[0.6rem] h-4 text-muted-foreground"
-                                      >
-                                        indirect
-                                      </Badge>
+                                      <Badge variant="outline" className="text-[0.6rem] h-4 text-muted-foreground">indirect</Badge>
                                     )}
                                   </div>
                                   <span className="text-xs text-muted-foreground">
-                                    {node.documentTitle} (depth {node.depth})
+                                    depth {node.depth}
                                   </span>
                                 </div>
                               </div>
@@ -795,45 +989,27 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-4 mt-1">
-              {/* Source requirement info */}
-              <div className="rounded-lg border p-4 bg-blue-50/50">
+              <div className="rounded-lg border p-4 bg-primary/5">
                 <p className="text-xs text-muted-foreground">Source Requirement</p>
-                <p className="text-sm font-semibold">
-                  {createLinkSource?.title}
-                </p>
-                <p className="text-xs font-mono text-muted-foreground">
-                  {createLinkSource?.id}
-                </p>
+                <p className="text-sm font-semibold">{createLinkSource?.title}</p>
+                <p className="text-xs text-muted-foreground">{createLinkSource?.level}</p>
               </div>
-
-              {/* Target Document */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium">Target Document</label>
-                <Select
-                  value={selectedTargetDoc}
-                  onValueChange={handleTargetDocChange}
-                >
+                <Select value={selectedTargetDoc} onValueChange={handleTargetDocChange}>
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select document" />
                   </SelectTrigger>
                   <SelectContent>
                     {documents.map((doc) => (
-                      <SelectItem key={doc.id} value={doc.id}>
-                        {doc.title}
-                      </SelectItem>
+                      <SelectItem key={doc.id} value={doc.id}>{doc.title}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-
-              {/* Target Requirement */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium">Target Requirement</label>
-                <Select
-                  value={selectedTargetReq}
-                  onValueChange={setSelectedTargetReq}
-                  disabled={!selectedTargetDoc}
-                >
+                <Select value={selectedTargetReq} onValueChange={setSelectedTargetReq} disabled={!selectedTargetDoc}>
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select requirement" />
                   </SelectTrigger>
@@ -841,24 +1017,16 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
                     {targetDocReqs.map((req) => (
                       <SelectItem key={req.id} value={req.id}>
                         <div className="flex flex-col">
-                          <span className="text-sm">{req.title}</span>
-                          <span className="text-xs font-mono text-muted-foreground">
-                            {req.id}
-                          </span>
+                          <span className="text-sm">{req.level} — {req.title}</span>
                         </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-
-              {/* Link Type */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium">Link Type</label>
-                <Select
-                  value={selectedLinkType}
-                  onValueChange={(v) => setSelectedLinkType(v as LinkType)}
-                >
+                <Select value={selectedLinkType} onValueChange={(v) => setSelectedLinkType(v as LinkType)}>
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select link type" />
                   </SelectTrigger>
@@ -866,10 +1034,7 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
                     {LINK_TYPES.map((lt) => (
                       <SelectItem key={lt} value={lt}>
                         <div className="flex items-center gap-2">
-                          <Badge
-                            variant="outline"
-                            className={`text-[0.7rem] h-5 ${LINK_TYPE_COLOR_CLASS[lt] || ''}`}
-                          >
+                          <Badge variant="outline" className={`text-[0.7rem] h-5 ${LINK_TYPE_COLOR_CLASS[lt] || ''}`}>
                             {lt}
                           </Badge>
                           <span className="text-sm">{lt.replace(/_/g, ' ')}</span>
@@ -882,15 +1047,8 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={handleCloseCreateDialog}>Cancel</Button>
-              <Button
-                onClick={handleCreateLink}
-                disabled={!selectedTargetDoc || !selectedTargetReq || creating}
-              >
-                {creating ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <LinkIcon className="h-4 w-4" />
-                )}
+              <Button onClick={handleCreateLink} disabled={!selectedTargetDoc || !selectedTargetReq || creating}>
+                {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <LinkIcon className="h-4 w-4" />}
                 {creating ? 'Creating...' : 'Create Link'}
               </Button>
             </DialogFooter>
@@ -903,10 +1061,10 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
             <div
               className={`flex items-center gap-2 rounded-lg border px-4 py-3 shadow-lg ${
                 snackbar.severity === 'success'
-                  ? 'bg-green-50 border-green-200 text-green-800'
+                  ? 'bg-green-500/15 border-green-500/30 text-green-700 dark:text-green-400'
                   : snackbar.severity === 'error'
-                  ? 'bg-red-50 border-red-200 text-red-800'
-                  : 'bg-sky-50 border-sky-200 text-sky-800'
+                  ? 'bg-red-500/15 border-red-500/30 text-red-700 dark:text-red-400'
+                  : 'bg-sky-500/15 border-sky-500/30 text-sky-700 dark:text-sky-400'
               }`}
             >
               <span className="text-sm">{snackbar.message}</span>
