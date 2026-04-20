@@ -181,14 +181,6 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
       </div>
 
       <svg width={svgWidth} height={svgHeight} className="select-none">
-        <defs>
-          {/* Arrow marker for merge edges */}
-          <marker id="mergeArrow" viewBox="0 0 10 10" refX="10" refY="5"
-            markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="#f59e0b" />
-          </marker>
-        </defs>
-
         {/* Branch vertical lane lines (background) */}
         {branches.map((b) => {
           const col = branchColumnMap[b.name] ?? 0;
@@ -224,7 +216,6 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
           const tx = nodeX(edge.to);
           const ty = nodeY(edge.to);
 
-          const isMerge = edge.type === 'merge';
           const isCrossBranch = fromNode.branchName !== toNode.branchName;
 
           // Same-branch parent edge: simple vertical line
@@ -245,19 +236,19 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
 
           // Cross-branch edge (merge): draw a smooth curve
           // from the source node down and across to the target node
+          // Use the SOURCE branch color for the merge line
           const midY = fy + (ty - fy) * 0.5;
-          const color = isMerge ? '#f59e0b' : branchColor(toNode.branchName);
+          const sourceColor = branchColor(fromNode.branchName);
 
           return (
             <path
               key={`e${i}`}
               d={`M ${fx} ${fy + NODE_R} C ${fx} ${midY}, ${tx} ${midY}, ${tx} ${ty - NODE_R}`}
               fill="none"
-              stroke={color}
+              stroke={sourceColor}
               strokeWidth={2.5}
-              strokeDasharray={isMerge ? '8,4' : '6,3'}
+              strokeDasharray="8,4"
               opacity={0.8}
-              markerEnd={isMerge ? 'url(#mergeArrow)' : undefined}
             />
           );
         })}
@@ -286,14 +277,14 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
                 cx={x}
                 cy={y}
                 r={NODE_R}
-                fill={node.isMerge ? '#fff' : node.isRevert ? '#fef2f2' : color}
-                stroke={node.isMerge ? '#f59e0b' : node.isRevert ? '#ef4444' : color}
+                fill={node.isRevert ? '#fef2f2' : color}
+                stroke={node.isRevert ? '#ef4444' : color}
                 strokeWidth={node.isMerge || node.isRevert ? 3 : 2}
                 className="cursor-pointer"
               />
               {/* Merge icon inside node */}
               {node.isMerge && (
-                <text x={x} y={y + 4} textAnchor="middle" fontSize={10} fill="#f59e0b">M</text>
+                <text x={x} y={y + 4} textAnchor="middle" fontSize={10} fill="#fff" fontWeight="bold">M</text>
               )}
               {/* Revert icon inside node */}
               {node.isRevert && !node.isMerge && (
