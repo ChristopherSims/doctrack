@@ -8,12 +8,12 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run dev:electron\" \"npm run dev:react\"",
-    "dev:electron": "tsc -p tsconfig.main.json && electron .",
+    "dev:electron": "npx tsc -p tsconfig.main.json && npx electron .",
     "dev:react": "vite",
-    "build": "tsc -p tsconfig.main.json && vite build && electron-builder",
+    "build": "npx tsc -p tsconfig.main.json && npx vite build && npx electron-builder",
     "build:vite": "vite build",
-    "build:electron": "tsc -p tsconfig.main.json",
-    "start": "electron .",
+    "build:electron": "npx tsc -p tsconfig.main.json",
+    "start": "npx electron .",
     "test": "vitest"
   },
   "dependencies": {

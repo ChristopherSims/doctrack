@@ -81,7 +81,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-background text-foreground">
+    <div className="flex flex-col h-screen bg-background text-foreground">
       <Navigation
         currentPage={state.currentPage}
         onNavigate={handleNavigate}
