@@ -1,25 +1,23 @@
 import React, { useState, useEffect } from 'react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
-  Box,
-  Typography,
-  Paper,
   Select,
-  MenuItem,
-  Button,
-  Chip,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Table,
-  TableHead,
+  TableHeader,
   TableBody,
   TableRow,
+  TableHead,
   TableCell,
-  Alert,
-  FormControl,
-  InputLabel,
-} from '@mui/material';
-import {
-  CompareArrows as CompareArrowsIcon,
-  Refresh as RefreshIcon,
-} from '@mui/icons-material';
+} from '@/components/ui/table';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { ArrowLeftRight, RefreshCw, Loader2, X } from 'lucide-react';
 import * as API from '../../api/api';
 
 interface DiffViewPageProps {
@@ -105,120 +103,137 @@ const DiffViewPage: React.FC<DiffViewPageProps> = ({ documentId, documentTitle }
     : 0;
 
   return (
-    <Box sx={{ p: 3, maxWidth: 1200 }}>
+    <div className="p-6 max-w-[1200px]">
       {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <CompareArrowsIcon color="primary" />
-          <Typography variant="h5" sx={{ fontWeight: 600 }}>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <ArrowLeftRight className="h-5 w-5 text-primary" />
+          <h1 className="text-xl font-semibold">
             Diff View
-          </Typography>
-          <Chip label={documentTitle} size="small" variant="outlined" />
-        </Box>
+          </h1>
+          <Badge variant="outline">{documentTitle}</Badge>
+        </div>
         <Button
-          size="small"
-          startIcon={<RefreshIcon />}
+          size="sm"
+          variant="outline"
           onClick={loadCommits}
         >
+          <RefreshCw className="h-4 w-4" />
           Refresh
         </Button>
-      </Box>
+      </div>
 
       {/* Commit Selectors */}
-      <Paper sx={{ p: 2, mb: 3 }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2 }}>
+      <div className="rounded-lg border bg-card p-4 mb-6">
+        <p className="text-sm font-semibold mb-4">
           Select Commits to Compare
-        </Typography>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-          <FormControl sx={{ minWidth: 300 }} size="small">
-            <InputLabel>Commit 1 (Base)</InputLabel>
-            <Select
-              value={commit1}
-              label="Commit 1 (Base)"
-              onChange={(e) => setCommit1(e.target.value)}
-            >
+        </p>
+        <div className="flex items-center gap-4 flex-wrap">
+          <Select value={commit1} onValueChange={setCommit1}>
+            <SelectTrigger size="sm" className="w-[300px]">
+              <SelectValue placeholder="Commit 1 (Base)" />
+            </SelectTrigger>
+            <SelectContent>
               {commits.map((commit) => (
-                <MenuItem key={commit.id} value={commit.id}>
+                <SelectItem key={commit.id} value={commit.id}>
                   {getCommitLabel(commit)}
-                </MenuItem>
+                </SelectItem>
               ))}
-            </Select>
-          </FormControl>
+            </SelectContent>
+          </Select>
 
-          <CompareArrowsIcon sx={{ color: '#999' }} />
+          <ArrowLeftRight className="h-5 w-5 text-muted-foreground" />
 
-          <FormControl sx={{ minWidth: 300 }} size="small">
-            <InputLabel>Commit 2 (Compare)</InputLabel>
-            <Select
-              value={commit2}
-              label="Commit 2 (Compare)"
-              onChange={(e) => setCommit2(e.target.value)}
-            >
+          <Select value={commit2} onValueChange={setCommit2}>
+            <SelectTrigger size="sm" className="w-[300px]">
+              <SelectValue placeholder="Commit 2 (Compare)" />
+            </SelectTrigger>
+            <SelectContent>
               {commits.map((commit) => (
-                <MenuItem key={commit.id} value={commit.id}>
+                <SelectItem key={commit.id} value={commit.id}>
                   {getCommitLabel(commit)}
-                </MenuItem>
+                </SelectItem>
               ))}
-            </Select>
-          </FormControl>
+            </SelectContent>
+          </Select>
 
           <Button
-            variant="contained"
-            startIcon={<CompareArrowsIcon />}
             onClick={handleCompare}
             disabled={!commit1 || !commit2 || loading}
           >
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+            {!loading && <ArrowLeftRight className="h-4 w-4" />}
             {loading ? 'Comparing...' : 'Compare'}
           </Button>
-        </Box>
-      </Paper>
+        </div>
+      </div>
 
       {/* Error Alert */}
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-          {error}
+        <Alert variant="destructive" className="mb-4">
+          <AlertDescription className="flex items-center justify-between">
+            <span>{error}</span>
+            <button
+              onClick={() => setError('')}
+              className="ml-2 rounded-full p-0.5 hover:bg-destructive/20"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </AlertDescription>
         </Alert>
       )}
 
       {/* Diff Results */}
       {diffResult && (
-        <Box>
+        <div>
           {/* Summary */}
-          <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-            <Chip label={`${diffResult.added.length} Added`} color="success" size="small" />
-            <Chip label={`${diffResult.removed.length} Removed`} color="error" size="small" />
-            <Chip label={`${diffResult.modified.length} Modified`} color="warning" size="small" />
-            <Chip label={`${totalChanges} Total Changes`} variant="outlined" size="small" />
-          </Box>
+          <div className="flex gap-2 mb-4">
+            <Badge className="bg-green-50 text-green-800 border-green-200 hover:bg-green-100">
+              {diffResult.added.length} Added
+            </Badge>
+            <Badge className="bg-red-50 text-red-800 border-red-200 hover:bg-red-100">
+              {diffResult.removed.length} Removed
+            </Badge>
+            <Badge className="bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100">
+              {diffResult.modified.length} Modified
+            </Badge>
+            <Badge variant="outline">
+              {totalChanges} Total Changes
+            </Badge>
+          </div>
 
           {totalChanges === 0 && (
-            <Alert severity="info" sx={{ mb: 2 }}>
-              No differences found between the selected commits.
+            <Alert className="mb-4 border-blue-200 bg-blue-50 text-blue-800">
+              <AlertDescription>
+                No differences found between the selected commits.
+              </AlertDescription>
             </Alert>
           )}
 
           {/* Added Requirements */}
           {diffResult.added.length > 0 && (
-            <Paper sx={{ mb: 2 }}>
-              <Box sx={{ p: 2, bgcolor: '#e8f5e9', borderRadius: '4px 4px 0 0' }}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 600, color: '#2e7d32' }}>
+            <div className="rounded-lg border mb-4 overflow-hidden">
+              <div className="p-4 bg-green-50 rounded-t-lg">
+                <h2 className="text-base font-semibold text-green-800">
                   Added Requirements ({diffResult.added.length})
-                </Typography>
-              </Box>
-              <Table size="small">
-                <TableHead>
+                </h2>
+              </div>
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell sx={{ fontWeight: 600 }}>ID</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>Title</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>Priority</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
+                    <TableHead className="font-semibold">ID</TableHead>
+                    <TableHead className="font-semibold">Title</TableHead>
+                    <TableHead className="font-semibold">Priority</TableHead>
+                    <TableHead className="font-semibold">Status</TableHead>
                   </TableRow>
-                </TableHead>
+                </TableHeader>
                 <TableBody>
                   {diffResult.added.map((req) => (
-                    <TableRow key={req.id} sx={{ bgcolor: '#e8f5e9' }}>
+                    <TableRow key={req.id} className="bg-green-50 hover:bg-green-100">
                       <TableCell>
-                        <Chip label={getShortId(req.id)} size="small" variant="outlined" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }} />
+                        <Badge variant="outline" className="font-mono text-[0.7rem]">
+                          {getShortId(req.id)}
+                        </Badge>
                       </TableCell>
                       <TableCell>{req.title}</TableCell>
                       <TableCell>{req.priority || '—'}</TableCell>
@@ -227,31 +242,33 @@ const DiffViewPage: React.FC<DiffViewPageProps> = ({ documentId, documentTitle }
                   ))}
                 </TableBody>
               </Table>
-            </Paper>
+            </div>
           )}
 
           {/* Removed Requirements */}
           {diffResult.removed.length > 0 && (
-            <Paper sx={{ mb: 2 }}>
-              <Box sx={{ p: 2, bgcolor: '#ffebee', borderRadius: '4px 4px 0 0' }}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 600, color: '#c62828' }}>
+            <div className="rounded-lg border mb-4 overflow-hidden">
+              <div className="p-4 bg-red-50 rounded-t-lg">
+                <h2 className="text-base font-semibold text-red-800">
                   Removed Requirements ({diffResult.removed.length})
-                </Typography>
-              </Box>
-              <Table size="small">
-                <TableHead>
+                </h2>
+              </div>
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell sx={{ fontWeight: 600 }}>ID</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>Title</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>Priority</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
+                    <TableHead className="font-semibold">ID</TableHead>
+                    <TableHead className="font-semibold">Title</TableHead>
+                    <TableHead className="font-semibold">Priority</TableHead>
+                    <TableHead className="font-semibold">Status</TableHead>
                   </TableRow>
-                </TableHead>
+                </TableHeader>
                 <TableBody>
                   {diffResult.removed.map((req) => (
-                    <TableRow key={req.id} sx={{ bgcolor: '#ffebee' }}>
+                    <TableRow key={req.id} className="bg-red-50 hover:bg-red-100">
                       <TableCell>
-                        <Chip label={getShortId(req.id)} size="small" variant="outlined" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }} />
+                        <Badge variant="outline" className="font-mono text-[0.7rem]">
+                          {getShortId(req.id)}
+                        </Badge>
                       </TableCell>
                       <TableCell>{req.title}</TableCell>
                       <TableCell>{req.priority || '—'}</TableCell>
@@ -260,61 +277,65 @@ const DiffViewPage: React.FC<DiffViewPageProps> = ({ documentId, documentTitle }
                   ))}
                 </TableBody>
               </Table>
-            </Paper>
+            </div>
           )}
 
           {/* Modified Requirements */}
           {diffResult.modified.length > 0 && (
-            <Paper sx={{ mb: 2 }}>
-              <Box sx={{ p: 2, bgcolor: '#fff8e1', borderRadius: '4px 4px 0 0' }}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 600, color: '#f57f17' }}>
+            <div className="rounded-lg border mb-4 overflow-hidden">
+              <div className="p-4 bg-amber-50 rounded-t-lg">
+                <h2 className="text-base font-semibold text-amber-800">
                   Modified Requirements ({diffResult.modified.length})
-                </Typography>
-              </Box>
-              <Table size="small">
-                <TableHead>
+                </h2>
+              </div>
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell sx={{ fontWeight: 600 }}>Requirement ID</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>Field</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>Old Value</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>New Value</TableCell>
+                    <TableHead className="font-semibold">Requirement ID</TableHead>
+                    <TableHead className="font-semibold">Field</TableHead>
+                    <TableHead className="font-semibold">Old Value</TableHead>
+                    <TableHead className="font-semibold">New Value</TableHead>
                   </TableRow>
-                </TableHead>
+                </TableHeader>
                 <TableBody>
                   {diffResult.modified.map((mod, index) => (
-                    <TableRow key={`${mod.id}-${mod.field}-${index}`} sx={{ bgcolor: '#fff8e1' }}>
+                    <TableRow key={`${mod.id}-${mod.field}-${index}`} className="bg-amber-50 hover:bg-amber-100">
                       <TableCell>
-                        <Chip label={getShortId(mod.id)} size="small" variant="outlined" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }} />
+                        <Badge variant="outline" className="font-mono text-[0.7rem]">
+                          {getShortId(mod.id)}
+                        </Badge>
                       </TableCell>
                       <TableCell>
-                        <Chip label={mod.field} size="small" color="warning" variant="outlined" />
+                        <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-200">
+                          {mod.field}
+                        </Badge>
                       </TableCell>
-                      <TableCell sx={{ color: '#c62828', textDecoration: 'line-through', opacity: 0.7 }}>
+                      <TableCell className="text-red-800 line-through opacity-70">
                         {mod.oldValue || '—'}
                       </TableCell>
-                      <TableCell sx={{ color: '#2e7d32', fontWeight: 600 }}>
+                      <TableCell className="text-green-800 font-semibold">
                         {mod.newValue || '—'}
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-            </Paper>
+            </div>
           )}
-        </Box>
+        </div>
       )}
 
       {/* No commits available */}
       {commits.length === 0 && (
-        <Paper sx={{ p: 4, textAlign: 'center' }}>
-          <CompareArrowsIcon sx={{ fontSize: 48, color: '#ccc', mb: 1 }} />
-          <Typography color="textSecondary">No commits available</Typography>
-          <Typography variant="body2" color="textSecondary">
+        <div className="rounded-lg border bg-card p-8 text-center">
+          <ArrowLeftRight className="h-12 w-12 text-muted-foreground/40 mx-auto mb-2" />
+          <p className="text-muted-foreground">No commits available</p>
+          <p className="text-sm text-muted-foreground">
             Create commits in the History page before comparing versions.
-          </Typography>
-        </Paper>
+          </p>
+        </div>
       )}
-    </Box>
+    </div>
   );
 };
 
