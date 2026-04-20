@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Navigation from './components/Navigation';
+import TitleBar from './components/TitleBar';
 import DocumentsPage from './pages/DocumentsPage';
 import RequirementsPage from './pages/RequirementsPage';
 import HistoryPage from './pages/HistoryPage';
@@ -140,6 +141,7 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground">
+      <TitleBar title="DocTrack" />
       <Navigation
         currentPage={state.currentPage}
         onNavigate={handleNavigate}

@@ -171,6 +171,7 @@ const createWindow = (): void => {
     y: windowState.y,
     minWidth: 1000,
     minHeight: 600,
+    frame: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -210,6 +211,26 @@ const createWindow = (): void => {
     mainWindow = null;
   });
 };
+
+// Window control IPC handlers for borderless title bar
+ipcMain.handle('window-minimize', async () => {
+  mainWindow?.minimize();
+  return { success: true };
+});
+
+ipcMain.handle('window-maximize', async () => {
+  if (mainWindow?.isMaximized()) {
+    mainWindow.unmaximize();
+  } else {
+    mainWindow?.maximize();
+  }
+  return { maximized: mainWindow?.isMaximized() };
+});
+
+ipcMain.handle('window-close', async () => {
+  mainWindow?.close();
+  return { success: true };
+});
 
 app.on('ready', async (): Promise<void> => {
   try {

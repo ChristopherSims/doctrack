@@ -6,6 +6,11 @@ declare global {
       version: string;
       loadSettings: () => Promise<Record<string, unknown>>;
       saveSettings: (settings: Record<string, unknown>) => Promise<void>;
+      window: {
+        minimize: () => Promise<{ success: boolean }>;
+        maximize: () => Promise<{ maximized: boolean | undefined }>;
+        close: () => Promise<{ success: boolean }>;
+      };
     };
   }
 }
