@@ -1,44 +1,65 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-  Box,
-  Button,
-  Typography,
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  flexRender,
+  type ColumnDef,
+  type SortingState,
+  type ColumnFiltersState,
+  type VisibilityState,
+} from '@tanstack/react-table';
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  ArrowLeft,
+  Save,
+  Link2,
+  ChevronRight,
+  ChevronDown,
+  Search,
+  Download,
+  Loader2,
+  X,
+} from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import {
   Dialog,
-  TextField,
-  Stack,
-  Chip,
-  CircularProgress,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
   Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  IconButton,
-  Paper,
-  Menu,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Tooltip,
-  Snackbar,
-  Alert,
-} from '@mui/material';
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {
-  DataGrid,
-  GridColDef,
-  GridRowModel,
-  GridToolbarQuickFilter,
-  GridToolbarContainer,
-  GridToolbarFilterButton,
-  GridToolbarExport,
-  GridRenderCellParams,
-} from '@mui/x-data-grid';
-import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  ArrowBack as ArrowBackIcon,
-  Save as SaveIcon,
-  Link as LinkIcon,
-  ChevronRight as ChevronRightIcon,
-  ExpandMore as ExpandMoreIcon,
-} from '@mui/icons-material';
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+
 import type { Requirement } from '../../types/index';
 import * as API from '../../api/api';
 import {
@@ -54,29 +75,136 @@ interface RequirementsPageProps {
   onBack: () => void;
 }
 
-const STATUS_OPTIONS = ['draft', 'review', 'approved', 'implemented', 'verified'];
-const PRIORITY_OPTIONS = ['low', 'medium', 'high'];
-const VERIFICATION_OPTIONS = ['manual', 'unit_test', 'integration_test', 'code_review', 'inspection', 'analysis', 'demonstration'];
+const STATUS_OPTIONS = ['draft', 'review', 'approved', 'implemented', 'verified'] as const;
+const PRIORITY_OPTIONS = ['low', 'medium', 'high'] as const;
+const VERIFICATION_OPTIONS = ['manual', 'unit_test', 'integration_test', 'code_review', 'inspection', 'analysis', 'demonstration'] as const;
 
-const getPriorityColor = (priority: string): 'default' | 'primary' | 'secondary' | 'error' | 'warning' | 'info' | 'success' => {
-  const colors: Record<string, 'default' | 'primary' | 'secondary' | 'error' | 'warning' | 'info' | 'success'> = {
-    high: 'error',
-    medium: 'warning',
-    low: 'success',
-  };
-  return colors[priority] || 'default';
+const priorityVariantMap: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+  high: 'destructive',
+  medium: 'outline',
+  low: 'secondary',
 };
 
-const getStatusColor = (status: string): 'default' | 'primary' | 'secondary' | 'error' | 'warning' | 'info' | 'success' => {
-  const colors: Record<string, 'default' | 'primary' | 'secondary' | 'error' | 'warning' | 'info' | 'success'> = {
-    draft: 'default',
-    review: 'warning',
-    approved: 'success',
-    implemented: 'primary',
-    verified: 'info',
-  };
-  return colors[status] || 'default';
+const statusVariantMap: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+  draft: 'secondary',
+  review: 'outline',
+  approved: 'default',
+  implemented: 'default',
+  verified: 'default',
 };
+
+const statusColorMap: Record<string, string> = {
+  draft: 'text-muted-foreground',
+  review: 'text-yellow-600',
+  approved: 'text-green-600',
+  implemented: 'text-blue-600',
+  verified: 'text-cyan-600',
+};
+
+const priorityColorMap: Record<string, string> = {
+  high: 'text-red-600',
+  medium: 'text-yellow-600',
+  low: 'text-green-600',
+};
+
+/* ─── Inline editable cell ─── */
+function EditableCell({
+  value,
+  rowId,
+  field,
+  onCommit,
+  type = 'text',
+  options,
+  displayRenderer,
+}: {
+  value: string;
+  rowId: string;
+  field: keyof Requirement;
+  onCommit: (rowId: string, field: keyof Requirement, value: string) => void;
+  type?: 'text' | 'select';
+  options?: readonly string[];
+  displayRenderer?: (value: string) => React.ReactNode;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [editing]);
+
+  const commit = useCallback(() => {
+    if (draft !== value) {
+      onCommit(rowId, field, draft);
+    }
+    setEditing(false);
+  }, [draft, value, rowId, field, onCommit]);
+
+  if (!editing) {
+    return (
+      <div
+        className="w-full h-full px-1 py-0.5 cursor-text min-h-[24px] flex items-center"
+        onDoubleClick={() => setEditing(true)}
+        title="Double-click to edit"
+      >
+        {displayRenderer ? displayRenderer(value) : <span className="truncate text-sm">{value || '\u2014'}</span>}
+      </div>
+    );
+  }
+
+  if (type === 'select' && options) {
+    return (
+      <select
+        ref={inputRef as unknown as React.RefObject<HTMLSelectElement>}
+        className="h-full w-full px-1 py-0 text-sm bg-background border border-primary rounded-sm outline-none"
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          onCommit(rowId, field, e.target.value);
+          setEditing(false);
+        }}
+        onBlur={() => setEditing(false)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            setDraft(value);
+            setEditing(false);
+          }
+        }}
+      >
+        {options.map((opt) => (
+          <option key={opt} value={opt}>
+            {opt.replace(/_/g, ' ')}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  return (
+    <input
+      ref={inputRef as React.RefObject<HTMLInputElement>}
+      className="h-full w-full px-1 py-0 text-sm bg-background border border-primary rounded-sm outline-none"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          commit();
+        }
+        if (e.key === 'Escape') {
+          setDraft(value);
+          setEditing(false);
+        }
+      }}
+    />
+  );
+}
 
 const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack }) => {
   const [requirements, setRequirements] = useState<Requirement[]>([]);
@@ -99,8 +227,19 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
   const [selectedDocForTrace, setSelectedDocForTrace] = useState('');
   const [stats, setStats] = useState<{ total: number; byStatus: Record<string, number>; byPriority: Record<string, number> } | null>(null);
 
-  // Expand/collapse state: Set of level strings whose children are visible
+  // Expand/collapse state
   const [expandedLevels, setExpandedLevels] = useState<Set<string>>(new Set());
+
+  // TanStack Table state
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [globalFilter, setGlobalFilter] = useState('');
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
+    changeRequestLink: false,
+    testPlanLink: false,
+    rationale: false,
+  });
+  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 50 });
 
   const [formData, setFormData] = useState({
     title: '',
@@ -118,6 +257,15 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
   useEffect(() => {
     loadData();
   }, [documentId]);
+
+  // Auto-hide snackbar
+  useEffect(() => {
+    if (snackbar.open) {
+      const timer = setTimeout(() => setSnackbar(prev => ({ ...prev, open: false })), 3000);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [snackbar.open]);
 
   // Compute parent levels from current requirements
   const parentLevelSet = useMemo(() => {
@@ -147,10 +295,8 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
       const reqResult = await API.getRequirements(documentId);
       if (reqResult.success) {
         const reqs = reqResult.data || [];
-        // Sort by level in tree order
         reqs.sort((a: Requirement, b: Requirement) => levelComparator(a.level || '1', b.level || '1'));
         setRequirements(reqs);
-        // Auto-expand all levels on initial load
         const levels = reqs.map((r: Requirement) => r.level || '1');
         setExpandedLevels(getParentLevels(levels));
       }
@@ -192,13 +338,23 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
     setExpandedLevels(new Set());
   }, []);
 
-  const handleRowUpdate = useCallback((newRow: GridRowModel, oldRow: GridRowModel) => {
-    if (JSON.stringify(newRow) === JSON.stringify(oldRow)) {
-      return oldRow;
-    }
-    setDirtyRows(prev => new Set(prev).add(newRow.id as string));
+  // Inline edit commit handler — updates the local requirements array
+  const handleCellCommit = useCallback((rowId: string, field: keyof Requirement, value: string) => {
+    setRequirements(prev => {
+      const next = prev.map(r => {
+        if (r.id === rowId) {
+          return { ...r, [field]: value };
+        }
+        return r;
+      });
+      return next;
+    });
+    setDirtyRows(prev => {
+      const next = new Set(prev);
+      next.add(rowId);
+      return next;
+    });
     setHasChanges(true);
-    return newRow;
   }, []);
 
   const handleSaveAllChanges = async () => {
@@ -322,25 +478,14 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
     }
   };
 
-  const handleContextMenu = (event: React.MouseEvent, rowId: string) => {
+  const handleContextMenu = useCallback((event: React.MouseEvent, rowId: string) => {
     event.preventDefault();
     setContextMenu({ mouseX: event.clientX, mouseY: event.clientY, rowId });
-  };
+  }, []);
 
-  // Wrap DataGrid row context menu
-  const handleGridContextMenu = (event: React.MouseEvent) => {
-    const rowElement = (event.target as HTMLElement).closest('[data-id]');
-    if (rowElement) {
-      const rowId = rowElement.getAttribute('data-id');
-      if (rowId) {
-        handleContextMenu(event, rowId);
-      }
-    }
-  };
-
-  const handleContextClose = () => {
+  const handleContextClose = useCallback(() => {
     setContextMenu(null);
-  };
+  }, []);
 
   const handleLoadReqsForTrace = async (docId: string) => {
     try {
@@ -353,525 +498,748 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack 
     }
   };
 
-  const columns: GridColDef[] = [
+  /* ─── CSV Export ─── */
+  const handleExportCSV = useCallback(() => {
+    const headers = ['Level', 'ID', 'Title', 'Description', 'Status', 'Priority', 'CR ID', 'CR Link', 'Test Plan', 'Verification', 'Rationale'];
+    const rows = visibleRequirements.map(r => [
+      r.level || '1',
+      r.id,
+      `"${(r.title || '').replace(/"/g, '""')}"`,
+      `"${(r.description || '').replace(/"/g, '""')}"`,
+      r.status,
+      r.priority,
+      r.changeRequestId || '',
+      r.changeRequestLink || '',
+      `"${(r.testPlan || '').replace(/"/g, '""')}"`,
+      r.verificationMethod || '',
+      `"${(r.rationale || '').replace(/"/g, '""')}"`,
+    ]);
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `requirements-${documentId}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [visibleRequirements, documentId]);
+
+  /* ─── Column Definitions ─── */
+  const columns = useMemo<ColumnDef<Requirement, string>[]>(() => [
     {
-      field: 'level',
-      headerName: 'Level',
-      width: 150,
-      editable: true,
-      type: 'singleSelect',
-      valueOptions: levelOptions,
-      renderCell: (params: GridRenderCellParams) => {
-        const level = params.value || '1';
+      accessorKey: 'level',
+      header: 'Level',
+      size: 180,
+      cell: ({ row }) => {
+        const level = row.original.level || '1';
         const depth = getLevelDepth(level);
         const isParent = parentLevelSet.has(level);
         const isExpanded = expandedLevels.has(level);
-        const indentPx = depth * 20;
 
         return (
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              pl: `${indentPx}px`,
-              width: '100%',
-              height: '100%',
-              cursor: isParent ? 'pointer' : 'default',
-            }}
-            onClick={(e) => {
-              if (isParent) {
-                e.stopPropagation();
-                toggleExpand(level);
-              }
-            }}
+          <div
+            className="flex items-center h-full w-full"
+            style={{ paddingLeft: `${depth * 20}px` }}
           >
             {isParent ? (
-              <IconButton size="small" sx={{ mr: 0.5, p: 0.25 }}>
+              <button
+                className="p-0.5 mr-1 rounded hover:bg-accent"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleExpand(level);
+                }}
+              >
                 {isExpanded ? (
-                  <ExpandMoreIcon fontSize="small" />
+                  <ChevronDown className="size-4" />
                 ) : (
-                  <ChevronRightIcon fontSize="small" />
+                  <ChevronRight className="size-4" />
                 )}
-              </IconButton>
+              </button>
             ) : (
-              <Box sx={{ width: 24, mr: 0.5 }} />
+              <span className="w-5 mr-1" />
             )}
-            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
-              {level}
-            </Typography>
-          </Box>
+            <EditableCell
+              value={level}
+              rowId={row.original.id}
+              field="level"
+              onCommit={handleCellCommit}
+              type="select"
+              options={levelOptions}
+            />
+          </div>
         );
       },
     },
     {
-      field: 'id',
-      headerName: 'ID',
-      width: 120,
-      editable: false,
-      renderCell: (params: GridRenderCellParams) => (
-        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#666' }}>
-          {params.value}
-        </Typography>
+      accessorKey: 'id',
+      header: 'ID',
+      size: 130,
+      cell: ({ getValue }) => (
+        <span className="font-mono text-xs text-muted-foreground">{getValue()}</span>
+      ),
+      enableEditing: false,
+    },
+    {
+      accessorKey: 'title',
+      header: 'Title',
+      size: 300,
+      cell: ({ row }) => (
+        <EditableCell
+          value={row.original.title}
+          rowId={row.original.id}
+          field="title"
+          onCommit={handleCellCommit}
+        />
       ),
     },
     {
-      field: 'title',
-      headerName: 'Title',
-      width: 300,
-      editable: true,
-    },
-    {
-      field: 'description',
-      headerName: 'Description',
-      width: 350,
-      editable: true,
-      renderCell: (params: GridRenderCellParams) => (
-        <Typography variant="body2" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {params.value || '—'}
-        </Typography>
+      accessorKey: 'description',
+      header: 'Description',
+      size: 350,
+      cell: ({ row }) => (
+        <EditableCell
+          value={row.original.description || ''}
+          rowId={row.original.id}
+          field="description"
+          onCommit={handleCellCommit}
+          displayRenderer={(v) => (
+            <span className="truncate text-sm">{v || '\u2014'}</span>
+          )}
+        />
       ),
     },
     {
-      field: 'status',
-      headerName: 'Status',
-      width: 130,
-      editable: true,
-      type: 'singleSelect',
-      valueOptions: STATUS_OPTIONS,
-      renderCell: (params: GridRenderCellParams) => (
-        <Chip label={params.value || 'draft'} size="small" color={getStatusColor(params.value)} variant="outlined" />
+      accessorKey: 'status',
+      header: 'Status',
+      size: 140,
+      cell: ({ row }) => (
+        <EditableCell
+          value={row.original.status}
+          rowId={row.original.id}
+          field="status"
+          onCommit={handleCellCommit}
+          type="select"
+          options={STATUS_OPTIONS}
+          displayRenderer={(v) => (
+            <Badge variant={statusVariantMap[v] || 'secondary'} className={statusColorMap[v] || ''}>
+              {v || 'draft'}
+            </Badge>
+          )}
+        />
+      ),
+      filterFn: 'equalsString',
+    },
+    {
+      accessorKey: 'priority',
+      header: 'Priority',
+      size: 120,
+      cell: ({ row }) => (
+        <EditableCell
+          value={row.original.priority}
+          rowId={row.original.id}
+          field="priority"
+          onCommit={handleCellCommit}
+          type="select"
+          options={PRIORITY_OPTIONS}
+          displayRenderer={(v) => (
+            <Badge variant={priorityVariantMap[v] || 'secondary'} className={priorityColorMap[v] || ''}>
+              {v || 'medium'}
+            </Badge>
+          )}
+        />
+      ),
+      filterFn: 'equalsString',
+    },
+    {
+      accessorKey: 'changeRequestId',
+      header: 'CR ID',
+      size: 130,
+      cell: ({ row }) => (
+        <EditableCell
+          value={row.original.changeRequestId || ''}
+          rowId={row.original.id}
+          field="changeRequestId"
+          onCommit={handleCellCommit}
+          displayRenderer={(v) => <span className="text-xs">{v || '\u2014'}</span>}
+        />
       ),
     },
     {
-      field: 'priority',
-      headerName: 'Priority',
-      width: 110,
-      editable: true,
-      type: 'singleSelect',
-      valueOptions: PRIORITY_OPTIONS,
-      renderCell: (params: GridRenderCellParams) => (
-        <Chip label={params.value || 'medium'} size="small" color={getPriorityColor(params.value)} />
-      ),
-    },
-    {
-      field: 'changeRequestId',
-      headerName: 'CR ID',
-      width: 130,
-      editable: true,
-      renderCell: (params: GridRenderCellParams) => (
-        <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>
-          {params.value || '—'}
-        </Typography>
-      ),
-    },
-    {
-      field: 'changeRequestLink',
-      headerName: 'CR Link',
-      width: 150,
-      editable: true,
-      renderCell: (params: GridRenderCellParams) => (
-        params.value ? (
-          <a href={params.value} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.8rem', color: '#1976d2', textDecoration: 'none' }}>
-            {params.value.length > 20 ? params.value.substring(0, 20) + '...' : params.value}
+      accessorKey: 'changeRequestLink',
+      header: 'CR Link',
+      size: 160,
+      cell: ({ getValue }) => {
+        const val = getValue();
+        return val ? (
+          <a
+            href={val}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-primary hover:underline truncate block max-w-[140px]"
+          >
+            {val.length > 20 ? val.substring(0, 20) + '...' : val}
           </a>
         ) : (
-          <Typography variant="body2" sx={{ color: '#999' }}>—</Typography>
-        )
+          <span className="text-muted-foreground text-xs">{'\u2014'}</span>
+        );
+      },
+    },
+    {
+      accessorKey: 'testPlan',
+      header: 'Test Plan',
+      size: 200,
+      cell: ({ row }) => (
+        <EditableCell
+          value={row.original.testPlan || ''}
+          rowId={row.original.id}
+          field="testPlan"
+          onCommit={handleCellCommit}
+          displayRenderer={(v) => (
+            <span className="truncate text-xs">{v || '\u2014'}</span>
+          )}
+        />
       ),
     },
     {
-      field: 'testPlan',
-      headerName: 'Test Plan',
-      width: 200,
-      editable: true,
-      renderCell: (params: GridRenderCellParams) => (
-        <Typography variant="body2" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: '0.8rem' }}>
-          {params.value || '—'}
-        </Typography>
+      accessorKey: 'verificationMethod',
+      header: 'Verification',
+      size: 150,
+      cell: ({ row }) => (
+        <EditableCell
+          value={row.original.verificationMethod || ''}
+          rowId={row.original.id}
+          field="verificationMethod"
+          onCommit={handleCellCommit}
+          type="select"
+          options={VERIFICATION_OPTIONS}
+          displayRenderer={(v) => (
+            <span className="text-xs">{v ? v.replace(/_/g, ' ') : '\u2014'}</span>
+          )}
+        />
       ),
     },
     {
-      field: 'verificationMethod',
-      headerName: 'Verification',
-      width: 140,
-      editable: true,
-      type: 'singleSelect',
-      valueOptions: VERIFICATION_OPTIONS,
-      renderCell: (params: GridRenderCellParams) => (
-        <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>
-          {params.value ? params.value.replace(/_/g, ' ') : '—'}
-        </Typography>
+      accessorKey: 'rationale',
+      header: 'Rationale',
+      size: 200,
+      cell: ({ row }) => (
+        <EditableCell
+          value={row.original.rationale || ''}
+          rowId={row.original.id}
+          field="rationale"
+          onCommit={handleCellCommit}
+          displayRenderer={(v) => (
+            <span className="truncate text-xs">{v || '\u2014'}</span>
+          )}
+        />
       ),
     },
     {
-      field: 'rationale',
-      headerName: 'Rationale',
-      width: 200,
-      editable: true,
-      renderCell: (params: GridRenderCellParams) => (
-        <Typography variant="body2" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: '0.8rem' }}>
-          {params.value || '—'}
-        </Typography>
+      id: 'actions',
+      header: '',
+      size: 90,
+      enableSorting: false,
+      enableFiltering: true,
+      cell: ({ row }) => (
+        <div className="flex items-center gap-0.5">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => handleOpenDialog(requirements.find(r => r.id === row.original.id))}
+                >
+                  <Pencil className="size-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Edit details</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => handleDeleteRequirement(row.original.id)}
+                >
+                  <Trash2 className="size-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Delete</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
       ),
     },
-    {
-      field: 'actions',
-      headerName: '',
-      width: 100,
-      sortable: false,
-      filterable: false,
-      disableColumnMenu: true,
-      renderCell: (params: GridRenderCellParams) => (
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
-          <Tooltip title="Edit details">
-            <IconButton size="small" onClick={() => handleOpenDialog(requirements.find(r => r.id === params.id))}>
-              <EditIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Delete">
-            <IconButton size="small" color="error" onClick={() => handleDeleteRequirement(params.id as string)}>
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Box>
-      ),
-    },
-  ];
+  ], [parentLevelSet, expandedLevels, toggleExpand, levelOptions, handleCellCommit, requirements]);
 
-  const CustomToolbar = () => (
-    <GridToolbarContainer sx={{ display: 'flex', justifyContent: 'space-between', p: 1 }}>
-      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-        <Button
-          variant="contained"
-          size="small"
-          startIcon={<AddIcon />}
-          onClick={() => handleOpenDialog()}
-        >
-          Add Requirement
-        </Button>
-        {hasChanges && (
-          <Button
-            variant="contained"
-            color="success"
-            size="small"
-            startIcon={<SaveIcon />}
-            onClick={handleSaveAllChanges}
-          >
-            Save All ({dirtyRows.size})
-          </Button>
-        )}
-        <Button variant="outlined" size="small" onClick={expandAll}>
-          Expand All
-        </Button>
-        <Button variant="outlined" size="small" onClick={collapseAll}>
-          Collapse All
-        </Button>
-        <GridToolbarFilterButton />
-        <GridToolbarExport />
-      </Box>
-      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-        <GridToolbarQuickFilter />
-      </Box>
-    </GridToolbarContainer>
-  );
+  const table = useReactTable({
+    data: visibleRequirements,
+    columns,
+    state: {
+      sorting,
+      columnFilters,
+      globalFilter,
+      columnVisibility,
+      pagination,
+    },
+    onSortingChange: setSorting,
+    onColumnFiltersChange: setColumnFilters,
+    onGlobalFilterChange: setGlobalFilter,
+    onColumnVisibilityChange: setColumnVisibility,
+    onPaginationChange: setPagination,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+  });
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '80vh' }}>
-        <CircularProgress />
-      </Box>
+      <div className="flex justify-center items-center min-h-[80vh]">
+        <Loader2 className="size-8 animate-spin text-primary" />
+      </div>
     );
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Document Top Bar */}
-      <Paper sx={{ p: 2, borderRadius: 0, boxShadow: 1, flexShrink: 0 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
-          <IconButton onClick={onBack} size="small">
-            <ArrowBackIcon />
-          </IconButton>
-          <Box sx={{ flex: 1 }}>
-            <Typography variant="caption" color="textSecondary">
-              Document
-            </Typography>
-            <Typography variant="h5" sx={{ fontWeight: 600 }}>
-              {documentTitle}
-            </Typography>
-          </Box>
+    <div className="flex flex-col h-full">
+      {/* ─── Document Top Bar ─── */}
+      <div className="flex-shrink-0 border-b bg-card shadow-sm p-4">
+        <div className="flex items-center gap-3 mb-1">
+          <Button variant="ghost" size="icon-sm" onClick={onBack}>
+            <ArrowLeft className="size-4" />
+          </Button>
+          <div className="flex-1">
+            <p className="text-xs text-muted-foreground">Document</p>
+            <h1 className="text-xl font-semibold">{documentTitle}</h1>
+          </div>
           {stats && (
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-              <Chip label={`${stats.total} total`} size="small" variant="outlined" />
+            <div className="flex gap-1.5 flex-wrap">
+              <Badge variant="outline">{stats.total} total</Badge>
               {Object.entries(stats.byStatus).map(([status, count]) => (
-                <Chip key={status} label={`${status}: ${count}`} size="small" color={getStatusColor(status)} variant="outlined" />
+                <Badge key={status} variant={statusVariantMap[status] || 'secondary'} className={statusColorMap[status] || ''}>
+                  {status}: {count}
+                </Badge>
               ))}
-            </Box>
+            </div>
           )}
-        </Box>
-      </Paper>
+        </div>
+      </div>
 
-      {/* Main Data Grid */}
-      <Box sx={{ flex: 1, minHeight: 0 }} onContextMenu={handleGridContextMenu}>
-        <DataGrid
-          rows={visibleRequirements}
-          columns={columns}
-          density="compact"
-          editMode="row"
-          processRowUpdate={handleRowUpdate}
-          onProcessRowUpdateError={(error) => console.error('Row update error:', error)}
-          slots={{
-            toolbar: CustomToolbar,
-          }}
-          onRowClick={(_params) => {
-            // Track selected row
-          }}
-          sx={{
-            border: 'none',
-            '& .MuiDataGrid-cell:focus': {
-              outline: '2px solid #1976d2',
-              outlineOffset: -2,
-            },
-            '& .MuiDataGrid-columnHeader': {
-              backgroundColor: '#f5f5f5',
-              fontWeight: 600,
-            },
-            '& .MuiDataGrid-row--editing': {
-              backgroundColor: '#fff9c4',
-            },
-            '& .dirty-row': {
-              backgroundColor: '#fff3e0 !important',
-            },
-          }}
-          initialState={{
-            columns: {
-              columnVisibilityModel: {
-                changeRequestLink: false,
-                testPlanLink: false,
-                rationale: false,
-              },
-            },
-          }}
-          pageSizeOptions={[25, 50, 100]}
-          disableRowSelectionOnClick
-        />
-      </Box>
+      {/* ─── Toolbar ─── */}
+      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b bg-muted/30 flex-shrink-0">
+        <div className="flex items-center gap-1.5">
+          <Button variant="default" size="sm" onClick={() => handleOpenDialog()}>
+            <Plus className="size-3.5" />
+            Add Requirement
+          </Button>
+          {hasChanges && (
+            <Button variant="default" size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={handleSaveAllChanges}>
+              <Save className="size-3.5" />
+              Save All ({dirtyRows.size})
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={expandAll}>
+            Expand All
+          </Button>
+          <Button variant="outline" size="sm" onClick={collapseAll}>
+            Collapse All
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportCSV}>
+            <Download className="size-3.5" />
+            Export
+          </Button>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Search..."
+              value={globalFilter ?? ''}
+              onChange={(e) => setGlobalFilter(e.target.value)}
+              className="h-8 w-48 pl-7 text-sm"
+            />
+            {globalFilter && (
+              <button
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => setGlobalFilter('')}
+              >
+                <X className="size-3" />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
 
-      {/* Context Menu */}
-      <Menu
-        open={contextMenu !== null}
-        onClose={handleContextClose}
-        anchorReference="anchorPosition"
-        anchorPosition={
-          contextMenu !== null
-            ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
-            : undefined
+      {/* ─── Main Table ─── */}
+      <div className="flex-1 min-h-0 overflow-auto" onContextMenu={(e) => {
+        // Find the row from closest tr
+        const rowEl = (e.target as HTMLElement).closest('tr[data-row-id]');
+        if (rowEl) {
+          const rowId = rowEl.getAttribute('data-row-id');
+          if (rowId) {
+            handleContextMenu(e, rowId);
+          }
         }
-      >
-        <MenuItem onClick={() => {
-          if (contextMenu) {
-            const req = requirements.find(r => r.id === contextMenu.rowId);
-            if (req) handleOpenDialog(req);
-          }
-          handleContextClose();
-        }}>
-          <EditIcon fontSize="small" sx={{ mr: 1 }} /> Edit Details
-        </MenuItem>
-        <MenuItem onClick={() => {
-          if (contextMenu) {
-            const req = requirements.find(r => r.id === contextMenu.rowId);
-            if (req) {
-              setTracingReq(req);
-              setOpenTraceability(true);
-            }
-          }
-          handleContextClose();
-        }}>
-          <LinkIcon fontSize="small" sx={{ mr: 1 }} /> Link Traceability
-        </MenuItem>
-        <MenuItem onClick={() => {
-          if (contextMenu) handleDeleteRequirement(contextMenu.rowId);
-          handleContextClose();
-        }}>
-          <DeleteIcon fontSize="small" sx={{ mr: 1, color: '#d32f2f' }} /> Delete
-        </MenuItem>
-      </Menu>
+      }}>
+        <Table className="text-sm">
+          <TableHeader>
+            {table.getHeaderGroups().map(headerGroup => (
+              <TableRow key={headerGroup.id} className="bg-muted/50 hover:bg-muted/50">
+                {headerGroup.headers.map(header => (
+                  <TableHead
+                    key={header.id}
+                    style={{ width: header.getSize() !== 150 ? header.getSize() : undefined }}
+                    className="cursor-pointer select-none"
+                    onClick={header.column.getToggleSortingHandler()}
+                  >
+                    <div className="flex items-center gap-1">
+                      {flexRender(header.column.columnDef.header, header.getContext())}
+                      {header.column.getIsSorted() && (
+                        <span className="text-xs">
+                          {header.column.getIsSorted() === 'asc' ? ' ↑' : ' ↓'}
+                        </span>
+                      )}
+                    </div>
+                  </TableHead>
+                ))}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {table.getRowModel().rows.length ? (
+              table.getRowModel().rows.map(row => {
+                const isDirty = dirtyRows.has(row.original.id);
+                return (
+                  <TableRow
+                    key={row.id}
+                    data-row-id={row.original.id}
+                    className={`${isDirty ? 'bg-orange-50 dark:bg-orange-950/20' : ''} hover:bg-muted/50`}
+                  >
+                    {row.getVisibleCells().map(cell => (
+                      <TableCell key={cell.id} className="p-0">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                );
+              })
+            ) : (
+              <TableRow>
+                <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
+                  No requirements found.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
-      {/* Add/Edit Dialog */}
-      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
-        <Box sx={{ p: 3 }}>
-          <Typography variant="h6" sx={{ mb: 3 }}>
-            {editingReq ? 'Edit Requirement' : 'New Requirement'}
-          </Typography>
-          <Stack spacing={2}>
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <FormControl sx={{ minWidth: 160 }}>
-                <InputLabel>Level</InputLabel>
+      {/* ─── Pagination ─── */}
+      <div className="flex items-center justify-between px-3 py-2 border-t bg-muted/30 flex-shrink-0 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <span>
+            Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()}
+          </span>
+          <span>|</span>
+          <span>{visibleRequirements.length} rows</span>
+          {dirtyRows.size > 0 && (
+            <>
+              <span>|</span>
+              <span className="text-orange-600 font-medium">{dirtyRows.size} unsaved</span>
+            </>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={() => table.setPageIndex(0)}
+            disabled={!table.getCanPreviousPage()}
+          >
+            First
+          </Button>
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={() => table.previousPage()}
+            disabled={!table.getCanPreviousPage()}
+          >
+            Prev
+          </Button>
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={() => table.nextPage()}
+            disabled={!table.getCanNextPage()}
+          >
+            Next
+          </Button>
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={() => table.setPageIndex(table.getPageCount() - 1)}
+            disabled={!table.getCanNextPage()}
+          >
+            Last
+          </Button>
+          <select
+            className="h-6 border rounded px-1 text-xs bg-background"
+            value={table.getState().pagination.pageSize}
+            onChange={(e) => table.setPageSize(Number(e.target.value))}
+          >
+            {[25, 50, 100].map(size => (
+              <option key={size} value={size}>{size}/page</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* ─── Context Menu ─── */}
+      {contextMenu && (
+        <div
+          className="fixed z-50 bg-popover border rounded-md shadow-lg py-1 min-w-[160px]"
+          style={{ top: contextMenu.mouseY, left: contextMenu.mouseX }}
+          onClick={handleContextClose}
+        >
+          <button
+            className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-accent text-left"
+            onClick={() => {
+              const req = requirements.find(r => r.id === contextMenu.rowId);
+              if (req) handleOpenDialog(req);
+            }}
+          >
+            <Pencil className="size-3.5" />
+            Edit Details
+          </button>
+          <button
+            className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-accent text-left"
+            onClick={() => {
+              const req = requirements.find(r => r.id === contextMenu.rowId);
+              if (req) {
+                setTracingReq(req);
+                setOpenTraceability(true);
+              }
+            }}
+          >
+            <Link2 className="size-3.5" />
+            Link Traceability
+          </button>
+          <button
+            className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-accent text-destructive text-left"
+            onClick={() => handleDeleteRequirement(contextMenu.rowId)}
+          >
+            <Trash2 className="size-3.5" />
+            Delete
+          </button>
+        </div>
+      )}
+      {/* Overlay to close context menu on outside click */}
+      {contextMenu && (
+        <div className="fixed inset-0 z-40" onClick={handleContextClose} onContextMenu={handleContextClose} />
+      )}
+
+      {/* ─── Add/Edit Dialog ─── */}
+      <Dialog open={openDialog} onOpenChange={setOpenDialog}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingReq ? 'Edit Requirement' : 'New Requirement'}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <div className="flex gap-3">
+              <div className="w-40">
+                <Label className="mb-1.5">Level</Label>
                 <Select
                   value={formData.level}
-                  label="Level"
-                  onChange={(e) => setFormData({ ...formData, level: e.target.value })}
+                  onValueChange={(val) => setFormData({ ...formData, level: val })}
                 >
-                  {levelOptions.map((opt) => {
-                    const depth = getLevelDepth(opt);
-                    const label = '\u00A0'.repeat(depth * 4) + opt;
-                    return (
-                      <MenuItem key={opt} value={opt}>
-                        <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                          {label}
-                        </Typography>
-                      </MenuItem>
-                    );
-                  })}
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Level" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {levelOptions.map((opt) => {
+                      const depth = getLevelDepth(opt);
+                      return (
+                        <SelectItem key={opt} value={opt}>
+                          <span className="font-mono" style={{ paddingLeft: `${depth * 12}px` }}>
+                            {opt}
+                          </span>
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
                 </Select>
-              </FormControl>
-              <TextField
-                label="Title"
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                fullWidth
+              </div>
+              <div className="flex-1">
+                <Label className="mb-1.5">Title</Label>
+                <Input
+                  value={formData.title}
+                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+            <div>
+              <Label className="mb-1.5">Description</Label>
+              <Textarea
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                rows={4}
                 required
               />
-            </Box>
-            <TextField
-              label="Description"
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              fullWidth
-              multiline
-              rows={4}
-              required
-            />
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <FormControl sx={{ minWidth: 150 }}>
-                <InputLabel>Priority</InputLabel>
+            </div>
+            <div className="flex gap-3">
+              <div className="w-40">
+                <Label className="mb-1.5">Priority</Label>
                 <Select
                   value={formData.priority}
-                  label="Priority"
-                  onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
+                  onValueChange={(val) => setFormData({ ...formData, priority: val })}
                 >
-                  <MenuItem value="low">Low</MenuItem>
-                  <MenuItem value="medium">Medium</MenuItem>
-                  <MenuItem value="high">High</MenuItem>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                  </SelectContent>
                 </Select>
-              </FormControl>
-              <FormControl sx={{ minWidth: 150 }}>
-                <InputLabel>Verification Method</InputLabel>
+              </div>
+              <div className="flex-1">
+                <Label className="mb-1.5">Verification Method</Label>
                 <Select
                   value={formData.verificationMethod}
-                  label="Verification Method"
-                  onChange={(e) => setFormData({ ...formData, verificationMethod: e.target.value })}
+                  onValueChange={(val) => setFormData({ ...formData, verificationMethod: val })}
                 >
-                  {VERIFICATION_OPTIONS.map(opt => (
-                    <MenuItem key={opt} value={opt}>{opt.replace(/_/g, ' ')}</MenuItem>
-                  ))}
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Verification Method" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {VERIFICATION_OPTIONS.map(opt => (
+                      <SelectItem key={opt} value={opt}>{opt.replace(/_/g, ' ')}</SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
-              </FormControl>
-            </Box>
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <TextField
-                label="Change Request ID"
-                value={formData.changeRequestId}
-                onChange={(e) => setFormData({ ...formData, changeRequestId: e.target.value })}
-                placeholder="e.g., CR-2024-001"
-                sx={{ flex: 1 }}
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <Label className="mb-1.5">Change Request ID</Label>
+                <Input
+                  value={formData.changeRequestId}
+                  onChange={(e) => setFormData({ ...formData, changeRequestId: e.target.value })}
+                  placeholder="e.g., CR-2024-001"
+                />
+              </div>
+              <div className="flex-1">
+                <Label className="mb-1.5">CR Link</Label>
+                <Input
+                  value={formData.changeRequestLink}
+                  onChange={(e) => setFormData({ ...formData, changeRequestLink: e.target.value })}
+                  placeholder="URL to CR document"
+                />
+              </div>
+            </div>
+            <div>
+              <Label className="mb-1.5">Test Plan</Label>
+              <Textarea
+                value={formData.testPlan}
+                onChange={(e) => setFormData({ ...formData, testPlan: e.target.value })}
+                rows={2}
+                placeholder="Describe test approach or reference test document"
               />
-              <TextField
-                label="CR Link"
-                value={formData.changeRequestLink}
-                onChange={(e) => setFormData({ ...formData, changeRequestLink: e.target.value })}
-                placeholder="URL to CR document"
-                sx={{ flex: 1 }}
+            </div>
+            <div>
+              <Label className="mb-1.5">Rationale</Label>
+              <Textarea
+                value={formData.rationale}
+                onChange={(e) => setFormData({ ...formData, rationale: e.target.value })}
+                rows={2}
+                placeholder="Why this requirement exists"
               />
-            </Box>
-            <TextField
-              label="Test Plan"
-              value={formData.testPlan}
-              onChange={(e) => setFormData({ ...formData, testPlan: e.target.value })}
-              fullWidth
-              multiline
-              rows={2}
-              placeholder="Describe test approach or reference test document"
-            />
-            <TextField
-              label="Rationale"
-              value={formData.rationale}
-              onChange={(e) => setFormData({ ...formData, rationale: e.target.value })}
-              fullWidth
-              multiline
-              rows={2}
-              placeholder="Why this requirement exists"
-            />
-            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-              <Button onClick={handleCloseDialog}>Cancel</Button>
-              <Button variant="contained" onClick={handleSaveRequirement}>
-                Save
-              </Button>
-            </Box>
-          </Stack>
-        </Box>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCloseDialog}>Cancel</Button>
+            <Button onClick={handleSaveRequirement}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
 
-      {/* Traceability Dialog */}
-      <Dialog open={openTraceability} onClose={() => setOpenTraceability(false)} maxWidth="sm" fullWidth>
-        <Box sx={{ p: 3 }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>
-            Link Traceability
-          </Typography>
+      {/* ─── Traceability Dialog ─── */}
+      <Dialog open={openTraceability} onOpenChange={setOpenTraceability}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Link Traceability</DialogTitle>
+          </DialogHeader>
           {tracingReq && (
-            <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+            <p className="text-sm text-muted-foreground">
               Source: {tracingReq.level} - {tracingReq.title}
-            </Typography>
+            </p>
           )}
-          <Stack spacing={2}>
-            <FormControl fullWidth>
-              <InputLabel>Target Document</InputLabel>
+          <div className="grid gap-3">
+            <div>
+              <Label className="mb-1.5">Target Document</Label>
               <Select
                 value={selectedDocForTrace}
-                label="Target Document"
-                onChange={(e) => {
-                  setSelectedDocForTrace(e.target.value);
-                  handleLoadReqsForTrace(e.target.value);
+                onValueChange={(val) => {
+                  setSelectedDocForTrace(val);
+                  handleLoadReqsForTrace(val);
                 }}
               >
-                {documents.map(doc => (
-                  <MenuItem key={doc.id} value={doc.id}>{doc.title}</MenuItem>
-                ))}
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select document" />
+                </SelectTrigger>
+                <SelectContent>
+                  {documents.map(doc => (
+                    <SelectItem key={doc.id} value={doc.id}>{doc.title}</SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
-            </FormControl>
+            </div>
             {reqsForTrace.length > 0 && (
-              <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
+              <div className="max-h-48 overflow-y-auto border rounded divide-y">
                 {reqsForTrace.map(req => (
-                  <Box key={req.id} sx={{ p: 1, borderBottom: '1px solid #eee' }}>
-                    <Typography variant="body2">
-                      {req.level}: {req.title}
-                    </Typography>
-                  </Box>
+                  <div key={req.id} className="px-3 py-1.5 text-sm">
+                    {req.level}: {req.title}
+                  </div>
                 ))}
-              </Box>
+              </div>
             )}
-            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-              <Button onClick={() => setOpenTraceability(false)}>Close</Button>
-            </Box>
-          </Stack>
-        </Box>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpenTraceability(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
 
-      {/* Snackbar for notifications */}
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={3000}
-        onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-      >
-        <Alert
-          onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
-          severity={snackbar.severity}
-          variant="filled"
-        >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
-    </Box>
+      {/* ─── Snackbar / Toast ─── */}
+      {snackbar.open && (
+        <div className="fixed bottom-4 right-4 z-50 animate-in fade-in slide-in-from-bottom-4">
+          <div
+            className={`flex items-center gap-2 rounded-md px-4 py-2.5 text-sm shadow-lg border ${
+              snackbar.severity === 'success'
+                ? 'bg-green-50 border-green-200 text-green-800 dark:bg-green-950 dark:text-green-200 dark:border-green-800'
+                : snackbar.severity === 'error'
+                ? 'bg-red-50 border-red-200 text-red-800 dark:bg-red-950 dark:text-red-200 dark:border-red-800'
+                : 'bg-blue-50 border-blue-200 text-blue-800 dark:bg-blue-950 dark:text-blue-200 dark:border-blue-800'
+            }`}
+          >
+            <span>{snackbar.message}</span>
+            <button
+              className="ml-2 opacity-70 hover:opacity-100"
+              onClick={() => setSnackbar(prev => ({ ...prev, open: false }))}
+            >
+              <X className="size-3" />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 
