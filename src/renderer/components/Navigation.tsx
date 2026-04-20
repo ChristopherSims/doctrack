@@ -1,27 +1,18 @@
 import React from 'react';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
 import {
-  Drawer,
-  List,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Toolbar,
-  Box,
-  Typography,
-  Divider,
-  Chip,
-} from '@mui/material';
-import {
-  Description as DescriptionIcon,
-  Settings as SettingsIcon,
-  Article as FileDocumentIcon,
-  History as HistoryIcon,
-  CallSplit as BranchIcon,
-  FileDownload as ExportIcon,
-  CompareArrows as CompareArrowsIcon,
-  DeviceHub as DeviceHubIcon,
-  FactCheck as FactCheckIcon,
-} from '@mui/icons-material';
+  FileText,
+  Settings,
+  History,
+  GitBranch,
+  Download,
+  GitCompareArrows,
+  Network,
+  ShieldCheck,
+} from 'lucide-react';
 import type { Page } from '../App';
 
 interface NavigationProps {
@@ -32,143 +23,77 @@ interface NavigationProps {
 }
 
 const Navigation: React.FC<NavigationProps> = ({ currentPage, onNavigate, selectedDocumentTitle, currentBranch }) => {
-  const drawerWidth = 240;
-
   const menuItems = [
-    { label: 'Documents', icon: <DescriptionIcon />, page: 'documents' as Page },
+    { label: 'Documents', icon: FileText, page: 'documents' as Page },
   ];
 
   const documentMenuItems = selectedDocumentTitle ? [
-    { label: 'History', icon: <HistoryIcon />, page: 'history' as Page },
-    { label: 'Branches', icon: <BranchIcon />, page: 'branches' as Page },
-    { label: 'Export', icon: <ExportIcon />, page: 'export' as Page },
-    { label: 'Diff View', icon: <CompareArrowsIcon />, page: 'diff' as Page },
-    { label: 'Traceability', icon: <DeviceHubIcon />, page: 'traceability' as Page },
+    { label: 'History', icon: History, page: 'history' as Page },
+    { label: 'Branches', icon: GitBranch, page: 'branches' as Page },
+    { label: 'Export', icon: Download, page: 'export' as Page },
+    { label: 'Diff View', icon: GitCompareArrows, page: 'diff' as Page },
+    { label: 'Traceability', icon: Network, page: 'traceability' as Page },
   ] : [];
 
   const globalMenuItems = [
-    { label: 'Audit Log', icon: <FactCheckIcon />, page: 'audit' as Page },
-    { label: 'Settings', icon: <SettingsIcon />, page: 'settings' as Page },
+    { label: 'Audit Log', icon: ShieldCheck, page: 'audit' as Page },
+    { label: 'Settings', icon: Settings, page: 'settings' as Page },
   ];
 
   return (
-    <Drawer
-      sx={{
-        width: drawerWidth,
-        flexShrink: 0,
-        '& .MuiDrawer-paper': {
-          width: drawerWidth,
-          boxSizing: 'border-box',
-          backgroundColor: '#fafafa',
-          borderRight: '1px solid #e0e0e0',
-        },
-      }}
-      variant="permanent"
-      anchor="left"
-    >
-      <Toolbar sx={{ px: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <FileDocumentIcon sx={{ color: '#1976d2', fontSize: 28 }} />
-          <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.1rem' }}>
-            DocTrack
-          </Typography>
-        </Box>
-      </Toolbar>
-
-      <Divider />
-
-      <List sx={{ flex: 1, pt: 1 }}>
-        {menuItems.map((item) => (
-          <ListItemButton
+    <aside className="w-60 border-r bg-card flex flex-col h-full">
+      <div className="p-4">
+        <h1 className="text-lg font-semibold tracking-tight">DocTrack</h1>
+        {currentBranch && (
+          <Badge variant="secondary" className="mt-1">{currentBranch}</Badge>
+        )}
+      </div>
+      <Separator />
+      <nav className="flex-1 p-2 space-y-1">
+        {menuItems.map(item => (
+          <Button
             key={item.page}
+            variant={currentPage === item.page ? 'secondary' : 'ghost'}
+            className="w-full justify-start"
             onClick={() => onNavigate(item.page)}
-            selected={currentPage === item.page}
-            sx={{
-              mx: 1,
-              borderRadius: 1,
-              mb: 0.5,
-              '&.Mui-selected': {
-                backgroundColor: '#e3f2fd',
-                '&:hover': { backgroundColor: '#bbdefb' },
-              },
-              '&:hover': { backgroundColor: '#f0f0f0' },
-            }}
           >
-            <ListItemIcon sx={{ color: currentPage === item.page ? '#1976d2' : '#666', minWidth: 36 }}>
-              {item.icon}
-            </ListItemIcon>
-            <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: '0.9rem' }} />
-          </ListItemButton>
+            <item.icon className="mr-2 h-4 w-4" />
+            {item.label}
+          </Button>
         ))}
-
         {selectedDocumentTitle && (
           <>
-            <Divider sx={{ my: 1 }} />
-            <Box sx={{ px: 2, py: 0.5 }}>
-              <Typography variant="caption" color="textSecondary" sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                {selectedDocumentTitle}
-              </Typography>
-              {currentBranch && (
-                <Chip label={currentBranch} size="small" sx={{ ml: 1, height: 18, fontSize: '0.65rem' }} />
-              )}
-            </Box>
-            {documentMenuItems.map((item) => (
-              <ListItemButton
+            <Separator className="my-2" />
+            <p className="px-3 py-1 text-xs text-muted-foreground truncate">{selectedDocumentTitle}</p>
+            {documentMenuItems.map(item => (
+              <Button
                 key={item.page}
+                variant={currentPage === item.page ? 'secondary' : 'ghost'}
+                className="w-full justify-start"
                 onClick={() => onNavigate(item.page)}
-                selected={currentPage === item.page}
-                sx={{
-                  mx: 1,
-                  borderRadius: 1,
-                  mb: 0.5,
-                  '&.Mui-selected': {
-                    backgroundColor: '#e3f2fd',
-                    '&:hover': { backgroundColor: '#bbdefb' },
-                  },
-                  '&:hover': { backgroundColor: '#f0f0f0' },
-                }}
               >
-                <ListItemIcon sx={{ color: currentPage === item.page ? '#1976d2' : '#666', minWidth: 36 }}>
-                  {item.icon}
-                </ListItemIcon>
-                <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: '0.9rem' }} />
-              </ListItemButton>
+                <item.icon className="mr-2 h-4 w-4" />
+                {item.label}
+              </Button>
             ))}
           </>
         )}
-
-        <Divider sx={{ my: 1 }} />
-
-        {globalMenuItems.map((item) => (
-          <ListItemButton
+      </nav>
+      <Separator />
+      <nav className="p-2 space-y-1">
+        {globalMenuItems.map(item => (
+          <Button
             key={item.page}
+            variant={currentPage === item.page ? 'secondary' : 'ghost'}
+            className="w-full justify-start"
             onClick={() => onNavigate(item.page)}
-            selected={currentPage === item.page}
-            sx={{
-              mx: 1,
-              borderRadius: 1,
-              mb: 0.5,
-              '&.Mui-selected': {
-                backgroundColor: '#e3f2fd',
-                '&:hover': { backgroundColor: '#bbdefb' },
-              },
-              '&:hover': { backgroundColor: '#f0f0f0' },
-            }}
           >
-            <ListItemIcon sx={{ color: currentPage === item.page ? '#1976d2' : '#666', minWidth: 36 }}>
-              {item.icon}
-            </ListItemIcon>
-            <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: '0.9rem' }} />
-          </ListItemButton>
+            <item.icon className="mr-2 h-4 w-4" />
+            {item.label}
+          </Button>
         ))}
-      </List>
-
-      <Divider />
-      <Box sx={{ p: 2, color: '#999' }}>
-        <Typography variant="caption" display="block">v0.1.0</Typography>
-        <Typography variant="caption" display="block">Requirements Tracker</Typography>
-      </Box>
-    </Drawer>
+      </nav>
+    </aside>
   );
 };
 
