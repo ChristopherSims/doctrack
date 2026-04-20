@@ -10,8 +10,16 @@ import SettingsPage from './pages/SettingsPage';
 import DiffViewPage from './pages/DiffViewPage';
 import TraceabilityPage from './pages/TraceabilityPage';
 import AuditLogPage from './pages/AuditLogPage';
+import type { RequirementFilter } from '../types/index';
 
 export type Page = 'documents' | 'requirements' | 'history' | 'branches' | 'export' | 'settings' | 'diff' | 'traceability' | 'audit';
+
+const EMPTY_FILTER: RequirementFilter = {
+  status: [],
+  priority: [],
+  verification: [],
+  tags: [],
+};
 
 interface AppState {
   currentPage: Page;
@@ -32,6 +40,15 @@ const App: React.FC = () => {
     navigateToDocId: null,
   });
 
+  // Shared filter state — persists while viewing a document
+  const [requirementFilter, setRequirementFilter] = useState<RequirementFilter>(EMPTY_FILTER);
+
+  const isFilterActive =
+    requirementFilter.status.length > 0 ||
+    requirementFilter.priority.length > 0 ||
+    requirementFilter.verification.length > 0 ||
+    requirementFilter.tags.length > 0;
+
   const handleNavigate = (page: Page) => {
     setState(prev => ({ ...prev, currentPage: page }));
   };
@@ -45,6 +62,8 @@ const App: React.FC = () => {
       highlightReqId: null,
       navigateToDocId: null,
     });
+    // Clear filter when switching documents
+    setRequirementFilter(EMPTY_FILTER);
   };
 
   const handleBackToDocuments = () => {
@@ -56,6 +75,7 @@ const App: React.FC = () => {
       highlightReqId: null,
       navigateToDocId: null,
     }));
+    setRequirementFilter(EMPTY_FILTER);
   };
 
   const handleBranchChange = (branchName: string) => {
@@ -71,10 +91,10 @@ const App: React.FC = () => {
       highlightReqId: null,
       navigateToDocId: null,
     }));
+    setRequirementFilter(EMPTY_FILTER);
   };
 
   const handleNavigateToRequirement = (documentId: string, requirementId: string) => {
-    // Find the document title from API or use a placeholder
     setState(prev => ({
       ...prev,
       currentPage: 'requirements',
@@ -112,6 +132,7 @@ const App: React.FC = () => {
             onBack={handleBackToDocuments}
             highlightReqId={state.highlightReqId ?? undefined}
             onClearHighlight={handleClearHighlight}
+            filter={requirementFilter}
           />
         ) : null;
       case 'history':
@@ -130,6 +151,7 @@ const App: React.FC = () => {
             documentId={state.selectedDocumentId}
             documentTitle={state.selectedDocumentTitle}
             onNavigateToRequirement={handleNavigateToRequirement}
+            filter={requirementFilter}
           />
         ) : null;
       case 'audit':
@@ -146,8 +168,12 @@ const App: React.FC = () => {
         currentPage={state.currentPage}
         onNavigate={handleNavigate}
         selectedDocumentTitle={state.selectedDocumentTitle}
+        selectedDocumentId={state.selectedDocumentId}
         currentBranch={state.currentBranch}
         onNavigateToDocument={handleNavigateToDocument}
+        requirementFilter={requirementFilter}
+        onFilterChange={setRequirementFilter}
+        isFilterActive={isFilterActive}
       />
       <main className="flex-1 overflow-auto">
         {renderPage()}

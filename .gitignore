@@ -20,3 +20,5 @@ backend/__pycache__/
 *.pyc
 .hermes/
 .vite/
+onedev/
+onedev

@@ -28,22 +28,32 @@ import {
   Loader2,
 } from 'lucide-react';
 import type { Page } from '../App';
+import type { RequirementFilter } from '../../types/index';
 import * as API from '../../api/api';
+import FilterPopover from './FilterPopover';
 
 interface NavigationProps {
   currentPage: Page;
   onNavigate: (page: Page) => void;
   selectedDocumentTitle?: string;
+  selectedDocumentId?: string | null;
   currentBranch?: string;
   onNavigateToDocument?: (docId: string, docTitle: string) => void;
+  requirementFilter?: RequirementFilter;
+  onFilterChange?: (filter: RequirementFilter) => void;
+  isFilterActive?: boolean;
 }
 
 const Navigation: React.FC<NavigationProps> = ({
   currentPage,
   onNavigate,
   selectedDocumentTitle,
+  selectedDocumentId,
   currentBranch,
   onNavigateToDocument,
+  requirementFilter,
+  onFilterChange,
+  isFilterActive,
 }) => {
   const [documents, setDocuments] = useState<any[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
@@ -55,10 +65,24 @@ const Navigation: React.FC<NavigationProps> = ({
   const [newDocForm, setNewDocForm] = useState({ title: '', description: '', owner: '' });
   const [creating, setCreating] = useState(false);
 
+  // Tags for filter popover
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
+
   // Load documents on mount
   useEffect(() => {
     loadDocuments();
   }, []);
+
+  // Load tags when a document is selected (for filter)
+  useEffect(() => {
+    if (!selectedDocumentId) {
+      setAvailableTags([]);
+      return;
+    }
+    API.getUniqueTags(selectedDocumentId)
+      .then((res) => setAvailableTags(res.data ?? []))
+      .catch(() => setAvailableTags([]));
+  }, [selectedDocumentId]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -71,6 +95,7 @@ const Navigation: React.FC<NavigationProps> = ({
       document.addEventListener('mousedown', handleClick);
       return () => document.removeEventListener('mousedown', handleClick);
     }
+    return undefined;
   }, [dropdownOpen]);
 
   const loadDocuments = async () => {
@@ -137,6 +162,9 @@ const Navigation: React.FC<NavigationProps> = ({
     { label: 'Audit Log', icon: ShieldCheck, page: 'audit' as Page },
     { label: 'Settings', icon: Settings, page: 'settings' as Page },
   ];
+
+  // Check if we're in a document view (show filter)
+  const isDocumentView = !!selectedDocumentTitle;
 
   return (
     <>
@@ -215,6 +243,15 @@ const Navigation: React.FC<NavigationProps> = ({
                 {item.label}
               </Button>
             ))}
+            {/* Filter popover after document tabs */}
+            {isDocumentView && requirementFilter && onFilterChange && (
+              <FilterPopover
+                filter={requirementFilter}
+                onFilterChange={onFilterChange}
+                isFilterActive={!!isFilterActive}
+                availableTags={availableTags}
+              />
+            )}
           </>
         )}
         <div className="flex-1" />

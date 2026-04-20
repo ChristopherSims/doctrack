@@ -182,3 +182,11 @@ export interface EditHistoryEntry {
   newValue: string | null;
   branchName: string;
 }
+
+/** Shared filter state for requirements — persisted per document session */
+export interface RequirementFilter {
+  status: string[];       // e.g. ['draft', 'review']
+  priority: string[];     // e.g. ['high']
+  verification: string[]; // e.g. ['unit_test']
+  tags: string[];         // e.g. ['safety']
+}

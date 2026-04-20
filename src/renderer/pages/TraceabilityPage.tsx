@@ -39,13 +39,14 @@ import {
   ChevronDown,
   Search,
 } from 'lucide-react';
-import type { Requirement, TraceabilityLink, Document } from '../../types/index';
+import type { Requirement, TraceabilityLink, Document, RequirementFilter } from '../../types/index';
 import * as API from '../../api/api';
 
 interface TraceabilityPageProps {
   documentId: string;
   documentTitle: string;
   onNavigateToRequirement?: (documentId: string, requirementId: string) => void;
+  filter?: RequirementFilter;
 }
 
 const LINK_TYPES = ['implements', 'verifies', 'traces_to', 'derives_from', 'satisfies'] as const;
@@ -157,7 +158,7 @@ function flattenTreeIds(nodes: TreeNode[]): string[] {
 
 // --- Component ---
 
-const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documentTitle, onNavigateToRequirement }) => {
+const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documentTitle, onNavigateToRequirement, filter }) => {
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
@@ -190,8 +191,29 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
     severity: 'success' | 'error' | 'info';
   }>({ open: false, message: '', severity: 'info' });
 
-  // Build tree from requirements
-  const tree = useMemo(() => buildTree(requirements), [requirements]);
+  // Apply shared RequirementFilter from App.tsx
+  const filteredRequirements = useMemo(() => {
+    if (!filter) return requirements;
+    const hasStatus = filter.status.length > 0;
+    const hasPriority = filter.priority.length > 0;
+    const hasVerification = filter.verification.length > 0;
+    const hasTags = filter.tags.length > 0;
+    if (!hasStatus && !hasPriority && !hasVerification && !hasTags) return requirements;
+
+    return requirements.filter((req) => {
+      if (hasStatus && !filter.status.includes(req.status || 'draft')) return false;
+      if (hasPriority && !filter.priority.includes(req.priority || 'medium')) return false;
+      if (hasVerification && !filter.verification.includes(req.verificationMethod || '')) return false;
+      if (hasTags) {
+        const reqTags = Array.isArray(req.tags) ? req.tags : [];
+        if (!filter.tags.some((t) => reqTags.includes(t))) return false;
+      }
+      return true;
+    });
+  }, [requirements, filter]);
+
+  // Build tree from filtered requirements
+  const tree = useMemo(() => buildTree(filteredRequirements), [filteredRequirements]);
 
   // When search changes, auto-expand matching paths
   useEffect(() => {
@@ -665,6 +687,11 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
                 {documentTitle} — Cross-document requirement linking and impact analysis
               </p>
             </div>
+            {filter && (filter.status.length > 0 || filter.priority.length > 0 || filter.verification.length > 0 || filter.tags.length > 0) && (
+              <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 text-xs gap-1">
+                Filtered: {filteredRequirements.length}/{requirements.length}
+              </Badge>
+            )}
             {selectedReq && (
               <Button
                 variant="secondary"

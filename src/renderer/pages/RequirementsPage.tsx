@@ -64,7 +64,7 @@ import {
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
-import type { Requirement, EditHistoryEntry } from '../../types/index';
+import type { Requirement, EditHistoryEntry, RequirementFilter } from '../../types/index';
 import * as API from '../../api/api';
 import RichTextEditor from '@/components/RichTextEditor';
 import TagInput from '@/components/TagInput';
@@ -81,6 +81,7 @@ interface RequirementsPageProps {
   onBack: () => void;
   highlightReqId?: string;
   onClearHighlight?: () => void;
+  filter?: RequirementFilter;
 }
 
 const STATUS_OPTIONS = ['draft', 'review', 'approved', 'implemented', 'verified'] as const;
@@ -323,7 +324,7 @@ function EditableCell({
   );
 }
 
-const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack, highlightReqId, onClearHighlight }) => {
+const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack, highlightReqId, onClearHighlight, filter }) => {
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [loading, setLoading] = useState(true);
   const [documentTitle, setDocumentTitle] = useState('');
@@ -435,6 +436,27 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
   const visibleRequirements = useMemo(() => {
     return filterVisibleRequirements(requirements, expandedLevels);
   }, [requirements, expandedLevels]);
+
+  // Apply shared RequirementFilter from App.tsx
+  const filteredRequirements = useMemo(() => {
+    if (!filter) return visibleRequirements;
+    const hasStatus = filter.status.length > 0;
+    const hasPriority = filter.priority.length > 0;
+    const hasVerification = filter.verification.length > 0;
+    const hasTags = filter.tags.length > 0;
+    if (!hasStatus && !hasPriority && !hasVerification && !hasTags) return visibleRequirements;
+
+    return visibleRequirements.filter((req) => {
+      if (hasStatus && !filter.status.includes(req.status || 'draft')) return false;
+      if (hasPriority && !filter.priority.includes(req.priority || 'medium')) return false;
+      if (hasVerification && !filter.verification.includes(req.verificationMethod || '')) return false;
+      if (hasTags) {
+        const reqTags = Array.isArray(req.tags) ? req.tags : [];
+        if (!filter.tags.some((t) => reqTags.includes(t))) return false;
+      }
+      return true;
+    });
+  }, [visibleRequirements, filter]);
 
   // Compute dynamic level options for the dialog dropdown
   const levelOptions = useMemo(() => {
@@ -719,7 +741,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
   /* ─── CSV Export ─── */
   const handleExportCSV = useCallback(() => {
     const headers = ['Level', 'ID', 'Title', 'Description', 'Status', 'Priority', 'CR ID', 'CR Link', 'Test Plan', 'Test Plan Link', 'Verification', 'Rationale', 'Tags'];
-    const rows = visibleRequirements.map(r => [
+    const rows = filteredRequirements.map(r => [
       r.level || '1',
       r.id,
       `"${(r.title || '').replace(/"/g, '""')}"`,
@@ -742,7 +764,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
     a.download = `requirements-${documentId}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [visibleRequirements, documentId]);
+  }, [filteredRequirements, documentId]);
 
   /* ─── Column Definitions ─── */
   const columns = useMemo<ColumnDef<Requirement, string>[]>(() => [
@@ -1051,7 +1073,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
   ], [parentLevelSet, expandedLevels, toggleExpand, levelOptions, handleCellCommit, requirements]);
 
   const table = useReactTable({
-    data: visibleRequirements,
+    data: filteredRequirements,
     columns,
     state: {
       sorting,
@@ -1131,6 +1153,12 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
           </Button>
         </div>
         <div className="flex items-center gap-2">
+          {filter && (filter.status.length > 0 || filter.priority.length > 0 || filter.verification.length > 0 || filter.tags.length > 0) && (
+            <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 text-xs gap-1">
+              <Tag className="h-3 w-3" />
+              Filtered: {filteredRequirements.length}/{visibleRequirements.length}
+            </Badge>
+          )}
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
             <Input
@@ -1234,7 +1262,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
             Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()}
           </span>
           <span>|</span>
-          <span>{visibleRequirements.length} rows</span>
+          <span>{filteredRequirements.length} rows</span>
           {dirtyRows.size > 0 && (
             <>
               <span>|</span>
