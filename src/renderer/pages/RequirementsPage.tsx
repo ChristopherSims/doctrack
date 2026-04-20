@@ -212,8 +212,8 @@ function RelatedRequirementsPicker({
                 >
                   {isSelected && <span className="text-xs">✓</span>}
                 </span>
-                <span className="font-mono text-xs text-muted-foreground">{req.level}</span>
-                <span className="truncate">{req.title}</span>
+                <span className="font-mono text-xs text-muted-foreground">{req.id}</span>
+                <span className="truncate text-muted-foreground">{req.title}</span>
               </button>
             );
           })}
@@ -1729,11 +1729,9 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
                 {formData.relatedRequirements.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mb-2">
                     {formData.relatedRequirements.map((reqId) => {
-                      // Try to find the requirement in loaded data
-                      const foundReq = requirements.find((r) => r.id === reqId);
                       return (
-                        <Badge key={reqId} variant="outline" className="gap-1 pr-1 text-xs">
-                          {foundReq ? `${foundReq.level} - ${foundReq.title}` : reqId}
+                        <Badge key={reqId} variant="outline" className="gap-1 pr-1 text-xs font-mono">
+                          {reqId}
                           <button
                             type="button"
                             className="ml-0.5 rounded-full hover:bg-foreground/10 p-0.5"
