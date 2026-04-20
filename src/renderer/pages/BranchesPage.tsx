@@ -1,29 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Box,
-  Typography,
-  Paper,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-  Chip,
-  Button,
-  TextField,
-  Dialog,
-  Stack,
-  IconButton,
-  Tooltip,
-  Divider,
-  Alert,
-} from '@mui/material';
+  GitBranch as BranchIcon,
+  Plus as AddIcon,
+  GitMerge as MergeIcon,
+  RefreshCw as RefreshIcon,
+  CheckCircle2 as CheckIcon,
+  X as XIcon,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
-  CallSplit as BranchIcon,
-  Add as AddIcon,
-  Merge as MergeIcon,
-  Refresh as RefreshIcon,
-  CheckCircle as CheckIcon,
-} from '@mui/icons-material';
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import * as API from '../../api/api';
 
 interface BranchesPageProps {
@@ -109,154 +111,192 @@ const BranchesPage: React.FC<BranchesPageProps> = ({ documentId, documentTitle, 
   };
 
   return (
-    <Box sx={{ p: 3, maxWidth: 900 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <BranchIcon color="primary" />
-          <Typography variant="h5" sx={{ fontWeight: 600 }}>
+    <div className="p-6 max-w-[900px]">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <BranchIcon className="h-5 w-5 text-primary" />
+          <h2 className="text-xl font-semibold">
             Branches
-          </Typography>
-          <Chip label={documentTitle} size="small" variant="outlined" />
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Tooltip title="Refresh">
-            <IconButton onClick={loadBranches} size="small">
-              <RefreshIcon />
-            </IconButton>
-          </Tooltip>
+          </h2>
+          <Badge variant="outline">{documentTitle}</Badge>
+        </div>
+        <div className="flex gap-2">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon-sm" onClick={loadBranches}>
+                  <RefreshIcon className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Refresh</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <Button
-            variant="outlined"
-            startIcon={<MergeIcon />}
-            size="small"
+            variant="outline"
+            size="sm"
             onClick={() => setOpenMergeDialog(true)}
           >
+            <MergeIcon className="h-4 w-4" />
             Merge
           </Button>
           <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            size="small"
+            size="sm"
             onClick={() => setOpenBranchDialog(true)}
           >
+            <AddIcon className="h-4 w-4" />
             New Branch
           </Button>
-        </Box>
-      </Box>
+        </div>
+      </div>
 
+      {/* Error Alert */}
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-          {error}
+        <Alert variant="destructive" className="mb-4">
+          <AlertDescription className="flex items-center justify-between">
+            <span>{error}</span>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => setError('')}
+            >
+              <XIcon className="h-3 w-3" />
+            </Button>
+          </AlertDescription>
         </Alert>
       )}
 
-      <Paper>
+      {/* Branch List */}
+      <div className="rounded-lg border bg-card">
         {branches.length === 0 ? (
-          <Box sx={{ p: 4, textAlign: 'center' }}>
-            <BranchIcon sx={{ fontSize: 48, color: '#ccc', mb: 1 }} />
-            <Typography color="textSecondary">No branches yet</Typography>
-          </Box>
+          <div className="p-8 text-center">
+            <BranchIcon className="h-12 w-12 text-muted-foreground/40 mx-auto mb-2" />
+            <p className="text-muted-foreground">No branches yet</p>
+          </div>
         ) : (
-          <List>
+          <div>
             {branches.map((branch, index) => (
               <React.Fragment key={branch.id}>
-                <ListItem
-                  sx={{ py: 1.5, cursor: 'pointer' }}
+                <div
+                  className="flex items-center gap-3 py-3 px-4 cursor-pointer hover:bg-accent/50 transition-colors"
                   onClick={() => handleCheckoutBranch(branch.name)}
                 >
-                  <ListItemIcon sx={{ minWidth: 36 }}>
+                  <div className="shrink-0 w-6 flex items-center justify-center">
                     {branch.name === currentBranch ? (
-                      <CheckIcon sx={{ color: '#4caf50' }} />
+                      <CheckIcon className="h-5 w-5 text-green-500" />
                     ) : (
-                      <BranchIcon sx={{ color: '#999' }} />
+                      <BranchIcon className="h-4 w-4 text-muted-foreground" />
                     )}
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="body2" sx={{ fontWeight: branch.name === currentBranch ? 600 : 400 }}>
-                          {branch.name}
-                        </Typography>
-                        {branch.name === currentBranch && (
-                          <Chip label="current" size="small" color="success" sx={{ height: 18, fontSize: '0.65rem' }} />
-                        )}
-                      </Box>
-                    }
-                    secondary={
-                      <Typography variant="caption" color="textSecondary">
-                        {branch.description || 'No description'} · Created by {branch.createdBy} · {new Date(branch.createdAt).toLocaleDateString()}
-                      </Typography>
-                    }
-                  />
-                </ListItem>
-                {index < branches.length - 1 && <Divider />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`text-sm ${
+                          branch.name === currentBranch ? 'font-semibold' : 'font-normal'
+                        }`}
+                      >
+                        {branch.name}
+                      </span>
+                      {branch.name === currentBranch && (
+                        <Badge
+                          variant="secondary"
+                          className="h-5 text-[0.65rem] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                        >
+                          current
+                        </Badge>
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {branch.description || 'No description'} · Created by {branch.createdBy} · {new Date(branch.createdAt).toLocaleDateString()}
+                    </span>
+                  </div>
+                </div>
+                {index < branches.length - 1 && (
+                  <div className="border-t mx-4" />
+                )}
               </React.Fragment>
             ))}
-          </List>
+          </div>
         )}
-      </Paper>
+      </div>
 
       {/* Create Branch Dialog */}
-      <Dialog open={openBranchDialog} onClose={() => setOpenBranchDialog(false)} maxWidth="sm" fullWidth>
-        <Box sx={{ p: 3 }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>Create Branch</Typography>
-          <Stack spacing={2}>
-            <TextField
-              label="Branch Name"
-              value={newBranchName}
-              onChange={(e) => setNewBranchName(e.target.value)}
-              fullWidth
-              required
-              placeholder="e.g., feature/new-requirements"
-            />
-            <TextField
-              label="Description"
-              value={newBranchDesc}
-              onChange={(e) => setNewBranchDesc(e.target.value)}
-              fullWidth
-              multiline
-              rows={2}
-            />
-            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-              <Button onClick={() => setOpenBranchDialog(false)}>Cancel</Button>
-              <Button variant="contained" onClick={handleCreateBranch} disabled={!newBranchName}>
-                Create
-              </Button>
-            </Box>
-          </Stack>
-        </Box>
+      <Dialog open={openBranchDialog} onOpenChange={setOpenBranchDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Branch</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="branch-name">Branch Name</Label>
+              <Input
+                id="branch-name"
+                value={newBranchName}
+                onChange={(e) => setNewBranchName(e.target.value)}
+                placeholder="e.g., feature/new-requirements"
+                required
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="branch-desc">Description</Label>
+              <Textarea
+                id="branch-desc"
+                value={newBranchDesc}
+                onChange={(e) => setNewBranchDesc(e.target.value)}
+                rows={2}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpenBranchDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateBranch} disabled={!newBranchName}>
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
 
       {/* Merge Dialog */}
-      <Dialog open={openMergeDialog} onClose={() => setOpenMergeDialog(false)} maxWidth="sm" fullWidth>
-        <Box sx={{ p: 3 }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>Merge Branches</Typography>
-          <Stack spacing={2}>
-            <TextField
-              label="Source Branch"
-              value={sourceBranch}
-              onChange={(e) => setSourceBranch(e.target.value)}
-              fullWidth
-              required
-              placeholder="Branch to merge from"
-            />
-            <TextField
-              label="Target Branch"
-              value={targetBranch}
-              onChange={(e) => setTargetBranch(e.target.value)}
-              fullWidth
-              required
-              placeholder="Branch to merge into"
-            />
-            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-              <Button onClick={() => setOpenMergeDialog(false)}>Cancel</Button>
-              <Button variant="contained" onClick={handleMergeBranch} disabled={!sourceBranch || !targetBranch}>
-                Merge
-              </Button>
-            </Box>
-          </Stack>
-        </Box>
+      <Dialog open={openMergeDialog} onOpenChange={setOpenMergeDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Merge Branches</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="source-branch">Source Branch</Label>
+              <Input
+                id="source-branch"
+                value={sourceBranch}
+                onChange={(e) => setSourceBranch(e.target.value)}
+                placeholder="Branch to merge from"
+                required
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="target-branch">Target Branch</Label>
+              <Input
+                id="target-branch"
+                value={targetBranch}
+                onChange={(e) => setTargetBranch(e.target.value)}
+                placeholder="Branch to merge into"
+                required
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpenMergeDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleMergeBranch} disabled={!sourceBranch || !targetBranch}>
+              Merge
+            </Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
-    </Box>
+    </div>
   );
 };
 
