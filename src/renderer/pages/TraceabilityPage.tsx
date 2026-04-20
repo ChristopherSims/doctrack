@@ -54,14 +54,6 @@ interface TraceabilityPageProps {
 const LINK_TYPES = ['implements', 'verifies', 'traces_to', 'derives_from', 'satisfies'] as const;
 type LinkType = typeof LINK_TYPES[number];
 
-const LINK_TYPE_VARIANT: Record<string, string> = {
-  implements: 'default',
-  verifies: 'secondary',
-  traces_to: 'outline',
-  derives_from: 'outline',
-  satisfies: 'secondary',
-};
-
 const LINK_TYPE_COLOR_CLASS: Record<string, string> = {
   implements: 'bg-blue-100 text-blue-800 border-blue-300',
   verifies: 'bg-green-100 text-green-800 border-green-300',
