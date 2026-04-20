@@ -15,6 +15,8 @@ import type { RequirementFilter } from '../types/index';
 export type Page = 'documents' | 'requirements' | 'history' | 'branches' | 'export' | 'settings' | 'diff' | 'traceability' | 'audit';
 
 const EMPTY_FILTER: RequirementFilter = {
+  title: '',
+  description: '',
   status: '',
   priority: '',
   verification: '',
@@ -44,6 +46,8 @@ const App: React.FC = () => {
   const [requirementFilter, setRequirementFilter] = useState<RequirementFilter>(EMPTY_FILTER);
 
   const isFilterActive =
+    requirementFilter.title.trim().length > 0 ||
+    requirementFilter.description.trim().length > 0 ||
     requirementFilter.status.trim().length > 0 ||
     requirementFilter.priority.trim().length > 0 ||
     requirementFilter.verification.trim().length > 0 ||

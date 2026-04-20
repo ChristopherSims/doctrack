@@ -14,6 +14,8 @@ interface FilterPopoverProps {
 }
 
 const FILTER_FIELDS: { key: keyof RequirementFilter; label: string; placeholder: string }[] = [
+  { key: 'title', label: 'Title', placeholder: 'e.g. system shall...' },
+  { key: 'description', label: 'Description', placeholder: 'e.g. The system must...' },
   { key: 'status', label: 'Status', placeholder: 'e.g. draft, approved...' },
   { key: 'priority', label: 'Priority', placeholder: 'e.g. high, medium...' },
   { key: 'verification', label: 'Verification', placeholder: 'e.g. manual, unit_test...' },
@@ -58,11 +60,13 @@ const FilterPopover: React.FC<FilterPopoverProps> = ({
   );
 
   const clearAll = useCallback(() => {
-    onFilterChange({ status: '', priority: '', verification: '', tags: '' });
+    onFilterChange({ title: '', description: '', status: '', priority: '', verification: '', tags: '' });
   }, [onFilterChange]);
 
   const activeCount = useMemo(() => {
     let count = 0;
+    if (filter.title.trim()) count++;
+    if (filter.description.trim()) count++;
     if (filter.status.trim()) count++;
     if (filter.priority.trim()) count++;
     if (filter.verification.trim()) count++;

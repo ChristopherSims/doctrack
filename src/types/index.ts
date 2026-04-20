@@ -185,6 +185,8 @@ export interface EditHistoryEntry {
 
 /** Shared filter state for requirements — persisted per document session */
 export interface RequirementFilter {
+  title: string;        // substring match
+  description: string;  // substring match
   status: string;       // substring match, e.g. 'draft'
   priority: string;     // substring match, e.g. 'high'
   verification: string; // substring match, e.g. 'unit_test'

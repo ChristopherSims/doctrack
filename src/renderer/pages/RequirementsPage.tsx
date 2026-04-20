@@ -440,13 +440,17 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
   // Apply shared RequirementFilter from App.tsx
   const filteredRequirements = useMemo(() => {
     if (!filter) return visibleRequirements;
+    const titleQ = filter.title.trim().toLowerCase();
+    const descriptionQ = filter.description.trim().toLowerCase();
     const statusQ = filter.status.trim().toLowerCase();
     const priorityQ = filter.priority.trim().toLowerCase();
     const verificationQ = filter.verification.trim().toLowerCase();
     const tagsQ = filter.tags.trim().toLowerCase();
-    if (!statusQ && !priorityQ && !verificationQ && !tagsQ) return visibleRequirements;
+    if (!titleQ && !descriptionQ && !statusQ && !priorityQ && !verificationQ && !tagsQ) return visibleRequirements;
 
     return visibleRequirements.filter((req) => {
+      if (titleQ && !(req.title || '').toLowerCase().includes(titleQ)) return false;
+      if (descriptionQ && !(req.description || '').toLowerCase().includes(descriptionQ)) return false;
       if (statusQ && !(req.status || 'draft').toLowerCase().includes(statusQ)) return false;
       if (priorityQ && !(req.priority || 'medium').toLowerCase().includes(priorityQ)) return false;
       if (verificationQ && !(req.verificationMethod || '').toLowerCase().includes(verificationQ)) return false;
@@ -1153,7 +1157,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
           </Button>
         </div>
         <div className="flex items-center gap-2">
-          {filter && (filter.status.trim() || filter.priority.trim() || filter.verification.trim() || filter.tags.trim()) && (
+          {filter && (filter.title.trim() || filter.description.trim() || filter.status.trim() || filter.priority.trim() || filter.verification.trim() || filter.tags.trim()) && (
             <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 text-xs gap-1">
               <Tag className="h-3 w-3" />
               Filtered: {filteredRequirements.length}/{visibleRequirements.length}
