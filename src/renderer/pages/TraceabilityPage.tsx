@@ -38,7 +38,10 @@ import {
   ChevronRight,
   ChevronDown,
   Search,
+  GitBranch,
 } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import TraceabilityTree from '@/components/TraceabilityTree';
 import type { Requirement, TraceabilityLink, Document, RequirementFilter } from '../../types/index';
 import * as API from '../../api/api';
 
@@ -191,6 +194,10 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
     severity: 'success' | 'error' | 'info';
   }>({ open: false, message: '', severity: 'info' });
 
+  // Cross-doc tree view data
+  const [crossDocTreeData, setCrossDocTreeData] = useState<any[]>([]);
+  const [crossDocTreeLoading, setCrossDocTreeLoading] = useState(false);
+
   // Apply shared RequirementFilter from App.tsx
   const filteredRequirements = useMemo(() => {
     if (!filter) return requirements;
@@ -294,6 +301,21 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
       setLoading(false);
     }
   };
+
+  // Build cross-doc tree data for TraceabilityTree component
+  const loadCrossDocTreeData = useCallback(async () => {
+    setCrossDocTreeLoading(true);
+    try {
+      const result = await API.getCrossDocTraceTree(documentId);
+      if (result.success && result.data) {
+        setCrossDocTreeData(result.data);
+      }
+    } catch (err) {
+      console.error('Failed to load cross-doc tree:', err);
+    } finally {
+      setCrossDocTreeLoading(false);
+    }
+  }, [documentId]);
 
   const loadAllLinks = async (reqs: Requirement[]) => {
     const newLinksMap: Record<string, LinkWithDetails[]> = {};
@@ -714,6 +736,20 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
           </div>
         </div>
 
+        <Tabs defaultValue="document-tree" className="flex-1 min-h-0 flex flex-col">
+          <TabsList className="shrink-0 w-fit">
+            <TabsTrigger value="document-tree" className="gap-1.5">
+              <Network className="size-3.5" />
+              Document Tree
+            </TabsTrigger>
+            <TabsTrigger value="cross-doc" className="gap-1.5" onClick={() => { if (crossDocTreeData.length === 0) loadCrossDocTreeData(); }}>
+              <GitBranch className="size-3.5" />
+              Cross-Doc Links
+            </TabsTrigger>
+          </TabsList>
+
+          {/* ─── Document Tree Tab (existing view) ─── */}
+          <TabsContent value="document-tree" className="flex-1 min-h-0 mt-0">
         <div className="flex gap-3 flex-1 min-h-0">
           {/* Left Panel: Hierarchical Tree */}
           <div className="flex-[2] flex flex-col min-w-0">
@@ -1006,6 +1042,18 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
             </div>
           </div>
         </div>
+          </TabsContent>
+
+          {/* ─── Cross-Doc Links Tab ─── */}
+          <TabsContent value="cross-doc" className="flex-1 min-h-0 mt-0">
+            <TraceabilityTree
+              nodes={crossDocTreeData}
+              loading={crossDocTreeLoading}
+              currentDocumentId={documentId}
+              onNavigateToRequirement={onNavigateToRequirement}
+            />
+          </TabsContent>
+        </Tabs>
 
         {/* Create Link Dialog */}
         <Dialog open={createDialogOpen} onOpenChange={(open) => { if (!open) handleCloseCreateDialog(); }}>

@@ -192,3 +192,11 @@ export interface RequirementFilter {
   verification: string; // substring match, e.g. 'unit_test'
   tags: string;         // substring match, e.g. 'safety'
 }
+
+export interface Comment {
+  id: string;
+  requirementId: string;
+  author: string;
+  text: string;
+  createdAt: string;
+}

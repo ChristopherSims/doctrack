@@ -226,6 +226,19 @@ def init_db():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_edit_history_req ON edit_history(requirementId)')
     
+    # Create comments table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS comments (
+        id TEXT PRIMARY KEY,
+        requirementId TEXT NOT NULL,
+        author TEXT NOT NULL,
+        text TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        FOREIGN KEY (requirementId) REFERENCES requirements(id)
+    )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_comments_req ON comments(requirementId)')
+    
     # Migration: add lastEditedBy column to requirements table if not exists
     cursor.execute('PRAGMA table_info(requirements)')
     req_columns2 = [col[1] for col in cursor.fetchall()]
@@ -1374,6 +1387,48 @@ def delete_traceability_link(link_id):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('DELETE FROM traceability WHERE id = ?', (link_id,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+# --- Comment Functions ---
+
+def get_comments(req_id):
+    """Get all comments for a requirement, ordered by createdAt ASC."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT * FROM comments WHERE requirementId = ? ORDER BY createdAt ASC',
+        (req_id,)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def create_comment(req_id, author, text):
+    """Create a comment on a requirement. Returns the created comment dict."""
+    comment_id = str(uuid4())
+    now = datetime.utcnow().isoformat()
+    
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+    INSERT INTO comments (id, requirementId, author, text, createdAt)
+    VALUES (?, ?, ?, ?, ?)
+    ''', (comment_id, req_id, author, text, now))
+    conn.commit()
+    
+    cursor.execute('SELECT * FROM comments WHERE id = ?', (comment_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row)
+
+def delete_comment(comment_id):
+    """Delete a comment by id. Returns True if deleted, False otherwise."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM comments WHERE id = ?', (comment_id,))
     deleted = cursor.rowcount > 0
     conn.commit()
     conn.close()

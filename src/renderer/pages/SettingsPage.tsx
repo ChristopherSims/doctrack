@@ -33,6 +33,7 @@ const SettingsPage: React.FC = () => {
   const [settings, setSettings] = useState(defaultSettings);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
+  void loading;
 
   // Load settings from AppData on mount
   useEffect(() => {

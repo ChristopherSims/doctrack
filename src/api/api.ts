@@ -322,3 +322,63 @@ export async function getDocumentHistory(
   const response = await fetch(`${API_BASE_URL}/documents/${encodeURIComponent(docId)}/history`);
   return response.json();
 }
+
+// CSV Import / Template API
+export async function downloadCSVTemplate(docId: string): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/documents/${docId}/csv-template`);
+  return response.blob();
+}
+
+export async function importCSVRequirements(
+  docId: string,
+  requirements: Record<string, any>[],
+  createdBy?: string
+): Promise<ApiResponse<{ imported: number; errors: Array<{ row: number; title?: string; error: string }> }>> {
+  const response = await fetch(`${API_BASE_URL}/documents/${docId}/import-csv`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requirements, createdBy: createdBy || 'system' }),
+  });
+  return response.json();
+}
+
+// Requirement Comments API
+export async function getComments(
+  reqId: string
+): Promise<ApiResponse<any[]>> {
+  const response = await fetch(`${API_BASE_URL}/requirements/${encodeURIComponent(reqId)}/comments`);
+  return response.json();
+}
+
+export async function createComment(
+  data: { requirementId: string; content: string; authorType: string }
+): Promise<ApiResponse<any>> {
+  const response = await fetch(`${API_BASE_URL}/requirements/${encodeURIComponent(data.requirementId)}/comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: data.content, authorType: data.authorType }),
+  });
+  return response.json();
+}
+
+export async function deleteComment(
+  commentId: string
+): Promise<ApiResponse<any>> {
+  const response = await fetch(`${API_BASE_URL}/comments/${encodeURIComponent(commentId)}`, {
+    method: 'DELETE',
+  });
+  return response.json();
+}
+
+// Cross-doc traceability tree
+export async function getCrossDocTraceTree(
+  docId: string
+): Promise<ApiResponse<any[]>> {
+  const response = await fetch(`${API_BASE_URL}/documents/${encodeURIComponent(docId)}/traceability-tree`);
+  const json = await response.json();
+  // Backend returns { success, data: { nodes: [...] } }, flatten to { success, data: [...] }
+  if (json.success && json.data?.nodes) {
+    return { success: true, data: json.data.nodes };
+  }
+  return json;
+}

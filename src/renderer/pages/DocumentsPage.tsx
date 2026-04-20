@@ -124,12 +124,12 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ onSelectDocument }) => {
 
       {documents.length === 0 ? (
         <Card className="py-12">
-          <CardContent className="text-center">
+          <div className="text-center px-6">
             <p className="text-muted-foreground">No documents yet</p>
             <p className="text-sm text-muted-foreground">
               Click &quot;New Document&quot; to get started
             </p>
-          </CardContent>
+          </div>
         </Card>
       ) : (
         <div className="flex flex-col gap-3">

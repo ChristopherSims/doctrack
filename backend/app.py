@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from database import init_db, get_all_documents, create_document_db, get_document_db, update_document_db, delete_document_db
 from database import get_all_requirements, create_requirement_db, get_requirement_db, update_requirement_db, delete_requirement_db
@@ -10,10 +10,15 @@ from database import create_traceability_link, get_traceability_links, delete_tr
 from database import add_audit_log, get_audit_log
 from database import add_edit_history, get_edit_history, get_edit_history_for_document
 from database import get_unique_tags
+from database import get_comments, create_comment, delete_comment
 from export import export_csv, export_word, export_pdf
 import os
+import csv
 import json
 import logging
+from io import StringIO
+from uuid import uuid4
+from datetime import datetime
 
 app = Flask(__name__)
 
@@ -515,6 +520,197 @@ def document_history(doc_id):
     except Exception as e:
         logger.error(f"Error fetching edit history for document {doc_id}: {e}")
         return jsonify({'success': False, 'error': 'Failed to fetch document edit history'}), 500
+
+# --- CSV Template Export & Import ---
+
+@app.route('/api/documents/<doc_id>/csv-template', methods=['GET'])
+def csv_template_export(doc_id):
+    """Return a CSV with only the header row for users to fill in for import."""
+    try:
+        document = get_document_db(doc_id)
+        if not document:
+            return jsonify({'success': False, 'error': 'Document not found'}), 404
+
+        headers = [
+            'Level', 'Title', 'Description', 'Status', 'Priority',
+            'Change Request ID', 'Change Request Link', 'Test Plan',
+            'Test Plan Link', 'Verification Method', 'Rationale', 'Tags'
+        ]
+
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow(headers)
+        csv_content = output.getvalue()
+
+        doc_title = document.get('title', 'document')
+        return Response(
+            csv_content,
+            200,
+            {
+                'Content-Type': 'text/csv',
+                'Content-Disposition': f'attachment; filename="{doc_title}_import_template.csv"'
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error exporting CSV template for document {doc_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to export CSV template'}), 500
+
+@app.route('/api/documents/<doc_id>/import-csv', methods=['POST'])
+def csv_import(doc_id):
+    """Import requirements from a JSON body with a requirements array."""
+    try:
+        document = get_document_db(doc_id)
+        if not document:
+            return jsonify({'success': False, 'error': 'Document not found'}), 404
+
+        data, err = validate_json(required_fields=['requirements'])
+        if err:
+            return err
+
+        requirements = data['requirements']
+        created_by = data.get('createdBy', 'system')
+        imported = 0
+        errors = []
+
+        for idx, row in enumerate(requirements):
+            title = row.get('title', '').strip()
+            if not title:
+                errors.append({'row': idx, 'error': 'Missing title'})
+                continue
+
+            # Convert tags: comma-separated string -> JSON array
+            tags = row.get('tags', [])
+            if isinstance(tags, str):
+                tags = [t.strip() for t in tags.split(',') if t.strip()]
+
+            req_data = {
+                'documentId': doc_id,
+                'title': title,
+                'description': row.get('description', ''),
+                'status': row.get('status', 'draft'),
+                'priority': row.get('priority', 'medium'),
+                'level': row.get('level', '1'),
+                'createdBy': created_by,
+                'changeRequestId': row.get('changeRequestId', ''),
+                'changeRequestLink': row.get('changeRequestLink', ''),
+                'testPlan': row.get('testPlan', ''),
+                'testPlanLink': row.get('testPlanLink', ''),
+                'verificationMethod': row.get('verificationMethod', ''),
+                'rationale': row.get('rationale', ''),
+                'tags': tags,
+                'custom_fields': {},
+                'related_requirements': [],
+                'parentRequirementId': None
+            }
+
+            try:
+                create_requirement_db(req_data)
+                imported += 1
+            except Exception as e:
+                errors.append({'row': idx, 'title': title, 'error': str(e)})
+
+        return jsonify({'success': True, 'data': {'imported': imported, 'errors': errors}})
+    except Exception as e:
+        logger.error(f"Error importing CSV for document {doc_id}: {e}")
+        return jsonify({'success': False, 'error': f'Failed to import CSV: {str(e)}'}), 500
+
+# --- Traceability Tree ---
+
+@app.route('/api/documents/<doc_id>/traceability-tree', methods=['GET'])
+def traceability_tree(doc_id):
+    """Return all traceability links for a document's requirements, enriched with titles."""
+    try:
+        document = get_document_db(doc_id)
+        if not document:
+            return jsonify({'success': False, 'error': 'Document not found'}), 404
+
+        requirements = get_all_requirements(doc_id)
+        doc_title = document.get('title', '')
+
+        nodes = []
+        for req in requirements:
+            links = get_traceability_links(req['id'])
+
+            outgoing = []
+            incoming = []
+
+            for link in links:
+                if link['sourceRequirementId'] == req['id']:
+                    # This requirement is the source -> outgoing link
+                    outgoing.append({
+                        'linkId': link['id'],
+                        'targetId': link['targetRequirementId'],
+                        'targetTitle': link.get('targetReqTitle', ''),
+                        'targetLevel': link.get('targetReqLevel', ''),
+                        'targetDocumentId': link.get('targetDocumentId', ''),
+                        'targetDocumentTitle': link.get('targetDocTitle', ''),
+                        'linkType': link.get('linkType', '')
+                    })
+                else:
+                    # This requirement is the target -> incoming link
+                    incoming.append({
+                        'linkId': link['id'],
+                        'sourceId': link['sourceRequirementId'],
+                        'sourceTitle': link.get('sourceReqTitle', ''),
+                        'sourceLevel': link.get('sourceReqLevel', ''),
+                        'sourceDocumentId': link.get('sourceDocumentId', ''),
+                        'sourceDocumentTitle': link.get('sourceDocTitle', ''),
+                        'linkType': link.get('linkType', '')
+                    })
+
+            nodes.append({
+                'id': req['id'],
+                'title': req.get('title', ''),
+                'level': req.get('level', ''),
+                'documentId': doc_id,
+                'documentTitle': doc_title,
+                'outgoing': outgoing,
+                'incoming': incoming
+            })
+
+        return jsonify({'success': True, 'data': {'nodes': nodes}})
+    except Exception as e:
+        logger.error(f"Error fetching traceability tree for document {doc_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch traceability tree'}), 500
+
+# --- Requirement Comments ---
+
+@app.route('/api/requirements/<req_id>/comments', methods=['GET'])
+def get_req_comments(req_id):
+    """List all comments for a requirement."""
+    try:
+        comments = get_comments(req_id)
+        return jsonify({'success': True, 'data': comments})
+    except Exception as e:
+        logger.error(f"Error fetching comments for requirement {req_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch comments'}), 500
+
+@app.route('/api/requirements/<req_id>/comments', methods=['POST'])
+def create_req_comment(req_id):
+    """Create a comment on a requirement."""
+    try:
+        data, err = validate_json(required_fields=['content'])
+        if err:
+            return err
+        author = data.get('authorType', 'user')
+        content = data['content']
+        comment = create_comment(req_id, author, content)
+        return jsonify({'success': True, 'data': comment}), 201
+    except Exception as e:
+        logger.error(f"Error creating comment on requirement {req_id}: {e}")
+        return jsonify({'success': False, 'error': f'Failed to create comment: {str(e)}'}), 400
+
+@app.route('/api/comments/<comment_id>', methods=['DELETE'])
+def delete_req_comment(comment_id):
+    """Delete a comment by id."""
+    try:
+        deleted = delete_comment(comment_id)
+        if not deleted:
+            return jsonify({'success': False, 'error': 'Comment not found'}), 404
+        return jsonify({'success': True, 'data': None})
+    except Exception as e:
+        logger.error(f"Error deleting comment {comment_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to delete comment'}), 500
 
 # --- Health check ---
 

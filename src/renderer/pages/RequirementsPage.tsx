@@ -28,6 +28,8 @@ import {
   Tag,
   ArrowUpRight,
   ArrowDownLeft,
+  Upload,
+  MessageSquare,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -70,6 +72,7 @@ import type { Requirement, EditHistoryEntry, RequirementFilter } from '../../typ
 import * as API from '../../api/api';
 import RichTextEditor from '@/components/RichTextEditor';
 import TagInput from '@/components/TagInput';
+import CSVImportDialog from '@/components/CSVImportDialog';
 import {
   getLevelDepth,
   getParentLevels,
@@ -240,6 +243,10 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
     message: '',
     severity: 'info',
   });
+  const [csvImportOpen, setCSVImportOpen] = useState(false);
+  const [comments, setComments] = useState<any[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [newCommentText, setNewCommentText] = useState('');
   const [openTraceability, setOpenTraceability] = useState(false);
   const [tracingReq, setTracingReq] = useState<Requirement | null>(null);
   const [documents, setDocuments] = useState<any[]>([]);
@@ -610,6 +617,12 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
       });
       // Fetch traceability links for this requirement
       loadTraceLinks(req.id);
+      // Fetch comments
+      setCommentsLoading(true);
+      API.getComments(req.id).then(res => {
+        setComments(res.data || []);
+        setCommentsLoading(false);
+      }).catch(() => setCommentsLoading(false));
     } else {
       setEditingReq(null);
       setFormData({
@@ -635,6 +648,9 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
       setTraceAddReqs([]);
       setTraceInDoc('');
       setTraceInReqs([]);
+      // Reset comments for new requirement
+      setComments([]);
+      setNewCommentText('');
     }
     // Load tag suggestions
     API.getUniqueTags(documentId).then((result) => {
@@ -1137,6 +1153,10 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
             <Download className="size-3.5" />
             Export
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setCSVImportOpen(true)}>
+            <Upload className="size-3.5" />
+            Import CSV
+          </Button>
         </div>
         <div className="flex items-center gap-2">
           {filter && (filter.title.trim() || filter.description.trim() || filter.status.trim() || filter.priority.trim() || filter.verification.trim() || filter.tags.trim()) && (
@@ -1435,10 +1455,17 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
             <DialogTitle>{editingReq ? 'Edit Requirement' : 'New Requirement'}</DialogTitle>
           </DialogHeader>
           <Tabs defaultValue="basic" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="basic">Basic</TabsTrigger>
               <TabsTrigger value="details">Details</TabsTrigger>
               <TabsTrigger value="relations">Relations</TabsTrigger>
+              <TabsTrigger value="comments" className="gap-1">
+                <MessageSquare className="size-3.5" />
+                Comments
+                {comments.length > 0 && (
+                  <Badge variant="secondary" className="ml-0.5 h-4 min-w-4 text-[0.6rem] px-1">{comments.length}</Badge>
+                )}
+              </TabsTrigger>
             </TabsList>
 
             {/* ─── Basic Tab ─── */}
@@ -1945,6 +1972,103 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
                 )}
               </div>
             </TabsContent>
+
+            {/* ─── Comments Tab ─── */}
+            <TabsContent value="comments" className="py-2">
+              <div className="space-y-3">
+                {commentsLoading && (
+                  <div className="flex items-center gap-2 py-4 justify-center">
+                    <Loader2 className="size-4 animate-spin" />
+                    <span className="text-sm text-muted-foreground">Loading comments...</span>
+                  </div>
+                )}
+                {!commentsLoading && comments.length === 0 && (
+                  <div className="text-center py-6">
+                    <MessageSquare className="size-8 mx-auto text-muted-foreground/40" />
+                    <p className="text-sm text-muted-foreground mt-2">No comments yet</p>
+                  </div>
+                )}
+                {!commentsLoading && comments.length > 0 && (
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {comments.map((c: any) => (
+                      <div key={c.id} className="rounded-md border px-3 py-2">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium">{c.author || 'User'}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[0.65rem] text-muted-foreground">
+                              {new Date(c.createdAt).toLocaleString()}
+                            </span>
+                            <button
+                              type="button"
+                              className="rounded-full hover:bg-destructive/10 p-0.5"
+                              title="Delete comment"
+                              onClick={async () => {
+                                if (!editingReq) return;
+                                const res = await API.deleteComment(c.id);
+                                if (res.success) {
+                                  setComments(prev => prev.filter((x: any) => x.id !== c.id));
+                                }
+                              }}
+                            >
+                              <X className="size-3 text-muted-foreground hover:text-destructive" />
+                            </button>
+                          </div>
+                        </div>
+                        <p className="text-sm whitespace-pre-wrap">{c.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Add comment */}
+                {editingReq && (
+                  <div className="flex gap-2 pt-2 border-t">
+                    <textarea
+                      className="flex-1 min-h-[60px] rounded-md border border-input bg-transparent px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                      placeholder="Add a comment..."
+                      value={newCommentText}
+                      onChange={(e) => setNewCommentText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                          e.preventDefault();
+                          // Submit comment
+                          if (!editingReq || !newCommentText.trim()) return;
+                          API.createComment({
+                            requirementId: editingReq.id,
+                            content: newCommentText.trim(),
+                            authorType: 'user',
+                          }).then(res => {
+                            if (res.data) {
+                              setComments(prev => [...prev, res.data]);
+                              setNewCommentText('');
+                            }
+                          });
+                        }
+                      }}
+                    />
+                    <Button
+                      size="sm"
+                      className="self-end"
+                      disabled={!newCommentText.trim()}
+                      onClick={() => {
+                        if (!editingReq || !newCommentText.trim()) return;
+                        API.createComment({
+                          requirementId: editingReq.id,
+                          content: newCommentText.trim(),
+                          authorType: 'user',
+                        }).then(res => {
+                          if (res.data) {
+                            setComments(prev => [...prev, res.data]);
+                            setNewCommentText('');
+                          }
+                        });
+                      }}
+                    >
+                      Post
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </TabsContent>
           </Tabs>
           <DialogFooter>
             <Button variant="outline" onClick={handleCloseDialog}>Cancel</Button>
@@ -1999,6 +2123,18 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ─── CSV Import Dialog ─── */}
+      <CSVImportDialog
+        open={csvImportOpen}
+        onOpenChange={setCSVImportOpen}
+        documentId={documentId}
+        onImportComplete={() => {
+          setCSVImportOpen(false);
+          loadData();
+          setSnackbar({ open: true, message: 'Requirements imported successfully', severity: 'success' });
+        }}
+      />
 
       {/* ─── Snackbar / Toast ─── */}
       {snackbar.open && (
