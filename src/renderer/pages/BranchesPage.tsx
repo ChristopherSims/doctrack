@@ -63,6 +63,8 @@ interface FlowNode {
   createdAt: string;
   parentCommitId: string | null;
   isMerge: boolean;
+  isRevert?: boolean;
+  mergeSourceBranch?: string | null;
 }
 
 interface FlowEdge {
@@ -83,7 +85,6 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
   // Assign column (x position) to each branch
   const branchColumnMap = useMemo(() => {
     const map: Record<string, number> = {};
-    // Main branch always column 0
     const sorted = [...branches].sort((a, b) => {
       if (a.name === 'main') return -1;
       if (b.name === 'main') return 1;
@@ -95,14 +96,44 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
     return map;
   }, [branches]);
 
-  // Assign row (y position) to each commit — just chronological order
-  const nodeYMap = useMemo(() => {
-    const map: Record<string, number> = {};
-    nodes.forEach((n, i) => {
-      map[n.id] = i;
-    });
+  // Node lookup by id
+  const nodeMap = useMemo(() => {
+    const map: Record<string, FlowNode> = {};
+    nodes.forEach(n => { map[n.id] = n; });
     return map;
   }, [nodes]);
+
+  // Layout: assign each node an (x, y) position.
+  // Each branch gets its own column (x). Y is a global row counter
+  // that advances whenever we place a node, ensuring no overlaps.
+  // We process commits chronologically so time flows top-to-bottom.
+  const layout = useMemo(() => {
+    const positions: Record<string, { x: number; y: number }> = {};
+    const branchRowCounts: Record<string, number> = {};
+
+    // Track the max Y used so far to avoid vertical overlaps
+    let globalRow = 0;
+
+    // Sort nodes by createdAt
+    const sorted = [...nodes].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+
+    for (const node of sorted) {
+      const col = branchColumnMap[node.branchName] ?? 0;
+      const branchRow = branchRowCounts[node.branchName] ?? 0;
+
+      // Use the max of global row and this branch's row to prevent overlap
+      const row = Math.max(globalRow, branchRow);
+
+      positions[node.id] = { x: col, y: row };
+
+      branchRowCounts[node.branchName] = row + 1;
+      globalRow = row + 1;
+    }
+
+    return positions;
+  }, [nodes, branchColumnMap]);
 
   const branchColor = (name: string) => {
     const col = branchColumnMap[name] ?? 0;
@@ -120,14 +151,19 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
     );
   }
 
-  const COL_WIDTH = 120;
-  const ROW_HEIGHT = 60;
-  const PADDING_X = 60;
-  const PADDING_Y = 30;
-  const NODE_R = 10;
+  const COL_WIDTH = 140;
+  const ROW_HEIGHT = 56;
+  const PADDING_X = 70;
+  const PADDING_Y = 40;
+  const NODE_R = 8;
+
   const maxCol = Math.max(...Object.values(branchColumnMap), 0);
+  const maxY = Math.max(...Object.values(layout).map(p => p.y), 0);
   const svgWidth = (maxCol + 1) * COL_WIDTH + PADDING_X * 2;
-  const svgHeight = nodes.length * ROW_HEIGHT + PADDING_Y * 2;
+  const svgHeight = (maxY + 1) * ROW_HEIGHT + PADDING_Y * 2;
+
+  const nodeX = (id: string) => (layout[id]?.x ?? 0) * COL_WIDTH + PADDING_X;
+  const nodeY = (id: string) => (layout[id]?.y ?? 0) * ROW_HEIGHT + PADDING_Y;
 
   return (
     <div className="overflow-auto border rounded-md bg-card">
@@ -145,76 +181,92 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
       </div>
 
       <svg width={svgWidth} height={svgHeight} className="select-none">
-        {/* Edges */}
-        {edges.map((edge, i) => {
-          const fromNode = nodes.find(n => n.id === edge.from);
-          const toNode = nodes.find(n => n.id === edge.to);
-          if (!fromNode || !toNode) return null;
+        <defs>
+          {/* Arrow marker for merge edges */}
+          <marker id="mergeArrow" viewBox="0 0 10 10" refX="10" refY="5"
+            markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#f59e0b" />
+          </marker>
+        </defs>
 
-          const fromX = (branchColumnMap[fromNode.branchName] ?? 0) * COL_WIDTH + PADDING_X;
-          const fromY = (nodeYMap[fromNode.id] ?? 0) * ROW_HEIGHT + PADDING_Y;
-          const toX = (branchColumnMap[toNode.branchName] ?? 0) * COL_WIDTH + PADDING_X;
-          const toY = (nodeYMap[toNode.id] ?? 0) * ROW_HEIGHT + PADDING_Y;
-
-          const isCrossBranch = fromNode.branchName !== toNode.branchName;
-          const color = branchColor(toNode.branchName);
-
-          // Draw path: straight if same column, L-shaped if cross-branch
-          if (isCrossBranch) {
-            const midY = fromY + ROW_HEIGHT / 2;
-            return (
-              <path
-                key={`e${i}`}
-                d={`M ${fromX} ${fromY + NODE_R} L ${fromX} ${midY} L ${toX} ${midY} L ${toX} ${toY - NODE_R}`}
-                fill="none"
-                stroke={color}
-                strokeWidth={2}
-                strokeDasharray="6,3"
-                opacity={0.7}
-              />
-            );
-          }
-          return (
-            <line
-              key={`e${i}`}
-              x1={fromX}
-              y1={fromY + NODE_R}
-              x2={toX}
-              y2={toY - NODE_R}
-              stroke={color}
-              strokeWidth={2}
-              opacity={0.6}
-            />
-          );
-        })}
-
-        {/* Branch vertical lines (background) */}
+        {/* Branch vertical lane lines (background) */}
         {branches.map((b) => {
           const col = branchColumnMap[b.name] ?? 0;
           const x = col * COL_WIDTH + PADDING_X;
           const branchNodes = nodes.filter(n => n.branchName === b.name);
           if (branchNodes.length === 0) return null;
-          const minY = (nodeYMap[branchNodes[0].id] ?? 0) * ROW_HEIGHT + PADDING_Y;
-          const maxY = (nodeYMap[branchNodes[branchNodes.length - 1].id] ?? 0) * ROW_HEIGHT + PADDING_Y;
+          const ys = branchNodes.map(n => layout[n.id]?.y ?? 0);
+          const minY = Math.min(...ys) * ROW_HEIGHT + PADDING_Y;
+          const maxY = Math.max(...ys) * ROW_HEIGHT + PADDING_Y;
           return (
             <line
               key={`bl-${b.id}`}
               x1={x}
-              y1={minY - 10}
+              y1={minY - 15}
               x2={x}
-              y2={maxY + 20}
+              y2={maxY + 25}
               stroke={branchColor(b.name)}
-              strokeWidth={3}
-              opacity={0.15}
+              strokeWidth={4}
+              opacity={0.08}
+              strokeLinecap="round"
+            />
+          );
+        })}
+
+        {/* Edges — draw BEFORE nodes so nodes sit on top */}
+        {edges.map((edge, i) => {
+          const fromNode = nodeMap[edge.from];
+          const toNode = nodeMap[edge.to];
+          if (!fromNode || !toNode || !layout[edge.from] || !layout[edge.to]) return null;
+
+          const fx = nodeX(edge.from);
+          const fy = nodeY(edge.from);
+          const tx = nodeX(edge.to);
+          const ty = nodeY(edge.to);
+
+          const isMerge = edge.type === 'merge';
+          const isCrossBranch = fromNode.branchName !== toNode.branchName;
+
+          // Same-branch parent edge: simple vertical line
+          if (!isCrossBranch) {
+            return (
+              <line
+                key={`e${i}`}
+                x1={fx}
+                y1={fy + NODE_R}
+                x2={tx}
+                y2={ty - NODE_R}
+                stroke={branchColor(toNode.branchName)}
+                strokeWidth={2}
+                opacity={0.5}
+              />
+            );
+          }
+
+          // Cross-branch edge (merge): draw a smooth curve
+          // from the source node down and across to the target node
+          const midY = fy + (ty - fy) * 0.5;
+          const color = isMerge ? '#f59e0b' : branchColor(toNode.branchName);
+
+          return (
+            <path
+              key={`e${i}`}
+              d={`M ${fx} ${fy + NODE_R} C ${fx} ${midY}, ${tx} ${midY}, ${tx} ${ty - NODE_R}`}
+              fill="none"
+              stroke={color}
+              strokeWidth={2.5}
+              strokeDasharray={isMerge ? '8,4' : '6,3'}
+              opacity={0.8}
+              markerEnd={isMerge ? 'url(#mergeArrow)' : undefined}
             />
           );
         })}
 
         {/* Nodes */}
         {nodes.map((node) => {
-          const col = branchColumnMap[node.branchName] ?? 0;
-          const x = col * COL_WIDTH + PADDING_X;
-          const y = (nodeYMap[node.id] ?? 0) * ROW_HEIGHT + PADDING_Y;
+          if (!layout[node.id]) return null;
+          const x = nodeX(node.id);
+          const y = nodeY(node.id);
           const color = branchColor(node.branchName);
           const isCurrentBranchHead = branches.some(
             b => b.name === currentBranch && b.headCommitId === node.id
@@ -224,55 +276,63 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
             <g key={node.id}>
               {/* Glow ring for current branch head */}
               {isCurrentBranchHead && (
-                <circle cx={x} cy={y} r={NODE_R + 4} fill="none" stroke={color} strokeWidth={2} opacity={0.3} />
+                <circle cx={x} cy={y} r={NODE_R + 5} fill="none" stroke={color} strokeWidth={2} opacity={0.3}>
+                  <animate attributeName="r" values={`${NODE_R + 4};${NODE_R + 7};${NODE_R + 4}`} dur="2s" repeatCount="indefinite" />
+                  <animate attributeName="opacity" values="0.3;0.1;0.3" dur="2s" repeatCount="indefinite" />
+                </circle>
               )}
               {/* Node circle */}
               <circle
                 cx={x}
                 cy={y}
                 r={NODE_R}
-                fill={node.isMerge ? '#fff' : color}
-                stroke={color}
-                strokeWidth={node.isMerge ? 3 : 2}
+                fill={node.isMerge ? '#fff' : node.isRevert ? '#fef2f2' : color}
+                stroke={node.isMerge ? '#f59e0b' : node.isRevert ? '#ef4444' : color}
+                strokeWidth={node.isMerge || node.isRevert ? 3 : 2}
                 className="cursor-pointer"
               />
+              {/* Merge icon inside node */}
               {node.isMerge && (
-                <MergeIcon x={x - 5} y={y - 5} width={10} height={10} color={color} />
+                <text x={x} y={y + 4} textAnchor="middle" fontSize={10} fill="#f59e0b">M</text>
+              )}
+              {/* Revert icon inside node */}
+              {node.isRevert && !node.isMerge && (
+                <text x={x} y={y + 4} textAnchor="middle" fontSize={10} fill="#ef4444">R</text>
               )}
               {/* Commit message label */}
               <text
-                x={x + NODE_R + 6}
+                x={x + NODE_R + 8}
                 y={y + 4}
-                className="text-[10px] fill-muted-foreground"
-                fontSize={10}
+                className="fill-foreground"
+                fontSize={11}
               >
-                {node.message.length > 35 ? node.message.slice(0, 35) + '...' : node.message}
+                {node.message.length > 40 ? node.message.slice(0, 40) + '...' : node.message}
               </text>
               {/* Author + time */}
               <text
-                x={x + NODE_R + 6}
-                y={y + 15}
-                className="text-[9px] fill-muted-foreground/60"
+                x={x + NODE_R + 8}
+                y={y + 16}
+                className="fill-muted-foreground"
                 fontSize={9}
               >
                 {node.author} · {new Date(node.createdAt).toLocaleDateString()}
               </text>
-              {/* Revert button on hover */}
+              {/* Revert button */}
               {onRevert && (
                 <g
                   className="opacity-0 hover:opacity-100 cursor-pointer"
                   onClick={() => onRevert(node.id, node.branchName)}
                 >
                   <rect
-                    x={x - NODE_R - 18}
-                    y={y - 8}
-                    width={16}
-                    height={16}
+                    x={x - NODE_R - 20}
+                    y={y - 9}
+                    width={18}
+                    height={18}
                     rx={3}
                     fill="hsl(var(--destructive))"
-                    opacity={0.8}
+                    opacity={0.85}
                   />
-                  <RotateCcw x={x - NODE_R - 16} y={y - 6} width={12} height={12} color="#fff" />
+                  <text x={x - NODE_R - 11} y={y + 4} textAnchor="middle" fontSize={10} fill="#fff">R</text>
                 </g>
               )}
             </g>
@@ -283,18 +343,30 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
         {branches.map((b) => {
           const col = branchColumnMap[b.name] ?? 0;
           const x = col * COL_WIDTH + PADDING_X;
+          const branchNodes = nodes.filter(n => n.branchName === b.name);
+          if (branchNodes.length === 0) return null;
           return (
-            <text
-              key={`label-${b.id}`}
-              x={x}
-              y={16}
-              textAnchor="middle"
-              className="text-[11px] font-semibold"
-              fill={branchColor(b.name)}
-              fontSize={11}
-            >
-              {b.name}
-            </text>
+            <g key={`label-${b.id}`}>
+              <rect
+                x={x - 30}
+                y={6}
+                width={60}
+                height={18}
+                rx={4}
+                fill={branchColor(b.name)}
+                opacity={0.15}
+              />
+              <text
+                x={x}
+                y={19}
+                textAnchor="middle"
+                className="font-semibold"
+                fill={branchColor(b.name)}
+                fontSize={11}
+              >
+                {b.name}
+              </text>
+            </g>
           );
         })}
       </svg>

@@ -1259,16 +1259,16 @@ def get_commit_graph(document_id):
     """Get all commits and branches for a document formatted as a flow diagram graph.
     
     Returns dict with:
-      - nodes: list of commit dicts (id, branchName, message, author, createdAt, parentCommitId, isMerge)
+      - nodes: list of commit dicts (id, branchName, message, author, createdAt, parentCommitId, isMerge, mergeSourceBranch)
       - branches: list of branch dicts with headCommitId
       - edges: list of {from, to, type} for parent->child and merge relationships
     """
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Get all commits
+    # Get all commits (include snapshot just to check, but don't return it)
     cursor.execute(
-        'SELECT id, documentId, branchName, message, author, createdAt, parentCommitId FROM commits WHERE documentId = ? ORDER BY createdAt ASC',
+        'SELECT id, documentId, branchName, message, author, createdAt, parentCommitId, snapshot FROM commits WHERE documentId = ? ORDER BY createdAt ASC',
         (document_id,)
     )
     commit_rows = cursor.fetchall()
@@ -1279,22 +1279,60 @@ def get_commit_graph(document_id):
     
     conn.close()
     
+    # Build lookup: commit_id -> commit row
+    commit_map = {row['id']: dict(row) for row in commit_rows}
+    
+    # Build lookup: branch_name -> branch info
+    branch_map = {}
+    for b in branch_rows:
+        branch_map[b['name']] = dict(b)
+    
+    # Detect merges: a commit with message "Merge branch 'X' into 'Y'"
+    # gives us the source branch. We also add a second parent edge from
+    # the source branch's head at the time of merge.
+    import re
+    merge_pattern = re.compile(r"Merge branch '(.+?)' into '(.+?)'")
+    
     nodes = []
     edges = []
     
     for row in commit_rows:
         c = dict(row)
-        # Detect merge commits: parent belongs to a different branch
         is_merge = False
+        merge_source_branch = None
+        
+        # Detect merge by message pattern
+        m = merge_pattern.match(c.get('message', ''))
+        if m:
+            is_merge = True
+            merge_source_branch = m.group(1)
+        
+        # Also detect revert commits
+        is_revert = c.get('message', '').startswith('Revert')
+        
+        # Add parent edge (always present for non-initial commits)
         if c.get('parentCommitId'):
-            # Check if parent commit is on a different branch
-            parent = next((n for n in commit_rows if n['id'] == c['parentCommitId']), None)
-            if parent and parent['branchName'] != c['branchName']:
-                is_merge = True
             edges.append({'from': c['parentCommitId'], 'to': c['id'], 'type': 'parent'})
         
-        c['isMerge'] = is_merge
+        # For merge commits, add a cross-branch edge from the source branch head
+        if is_merge and merge_source_branch:
+            # Find the most recent commit on the source branch that was made
+            # before this merge commit
+            merge_time = c['createdAt']
+            source_branch_commits = [
+                cr for cr in commit_rows
+                if cr['branchName'] == merge_source_branch and cr['createdAt'] <= merge_time
+            ]
+            if source_branch_commits:
+                # The last commit on source branch before/during merge
+                source_head = source_branch_commits[-1]
+                edges.append({'from': source_head['id'], 'to': c['id'], 'type': 'merge'})
+        
         # Don't include snapshot in graph data — it's huge
+        c['isMerge'] = is_merge
+        c['isRevert'] = is_revert
+        c['mergeSourceBranch'] = merge_source_branch
+        del c['snapshot']
         nodes.append(c)
     
     branches = [dict(b) for b in branch_rows]
