@@ -26,6 +26,7 @@ import {
   ChevronDown,
   Plus,
   Loader2,
+  GitCommitHorizontal,
 } from 'lucide-react';
 import type { Page } from '../App';
 import type { RequirementFilter } from '../../types/index';
@@ -64,6 +65,12 @@ const Navigation: React.FC<NavigationProps> = ({
   const [newDocDialogOpen, setNewDocDialogOpen] = useState(false);
   const [newDocForm, setNewDocForm] = useState({ title: '', description: '', owner: '' });
   const [creating, setCreating] = useState(false);
+
+  // Commit dialog
+  const [commitDialogOpen, setCommitDialogOpen] = useState(false);
+  const [commitMessage, setCommitMessage] = useState('');
+  const [commitAuthor, setCommitAuthor] = useState('system');
+  const [committing, setCommitting] = useState(false);
 
   // Tags for filter popover
   const [availableTags, setAvailableTags] = useState<string[]>([]);
@@ -147,6 +154,25 @@ const Navigation: React.FC<NavigationProps> = ({
       console.error('Failed to create document:', error);
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleCreateCommit = async () => {
+    if (!selectedDocumentId || !commitMessage.trim()) return;
+    setCommitting(true);
+    try {
+      const result = await API.createCommit(selectedDocumentId, {
+        message: commitMessage,
+        author: commitAuthor,
+      });
+      if (result.success) {
+        setCommitDialogOpen(false);
+        setCommitMessage('');
+      }
+    } catch (error) {
+      console.error('Failed to create commit:', error);
+    } finally {
+      setCommitting(false);
     }
   };
 
@@ -263,6 +289,23 @@ const Navigation: React.FC<NavigationProps> = ({
           </>
         )}
         <div className="flex-1" />
+        {selectedDocumentId && (
+          <>
+            <Button
+              size="sm"
+              className="gap-1.5"
+              onClick={() => {
+                setCommitMessage('');
+                setCommitAuthor('system');
+                setCommitDialogOpen(true);
+              }}
+            >
+              <GitCommitHorizontal className="h-4 w-4" />
+              Commit
+            </Button>
+            <Separator orientation="vertical" className="h-6 mx-1" />
+          </>
+        )}
         {globalMenuItems.map(item => (
           <Button
             key={item.page}
@@ -329,6 +372,57 @@ const Navigation: React.FC<NavigationProps> = ({
                 <Plus className="h-4 w-4" />
               )}
               {creating ? 'Creating...' : 'Create'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Commit Dialog */}
+      <Dialog open={commitDialogOpen} onOpenChange={setCommitDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GitCommitHorizontal className="h-5 w-5 text-primary" />
+              Create Commit
+            </DialogTitle>
+            <DialogDescription>
+              Snapshot the current state of your requirements on branch <span className="font-mono font-semibold">{currentBranch || 'main'}</span>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="nav-commit-message">Commit Message *</Label>
+              <Input
+                id="nav-commit-message"
+                value={commitMessage}
+                onChange={(e) => setCommitMessage(e.target.value)}
+                placeholder="Describe the changes in this commit"
+                autoFocus
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="nav-commit-author">Author</Label>
+              <Input
+                id="nav-commit-author"
+                value={commitAuthor}
+                onChange={(e) => setCommitAuthor(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCommitDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateCommit}
+              disabled={!commitMessage.trim() || committing}
+            >
+              {committing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <GitCommitHorizontal className="h-4 w-4" />
+              )}
+              {committing ? 'Committing...' : 'Commit'}
             </Button>
           </DialogFooter>
         </DialogContent>
