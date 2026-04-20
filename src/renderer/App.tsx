@@ -15,10 +15,10 @@ import type { RequirementFilter } from '../types/index';
 export type Page = 'documents' | 'requirements' | 'history' | 'branches' | 'export' | 'settings' | 'diff' | 'traceability' | 'audit';
 
 const EMPTY_FILTER: RequirementFilter = {
-  status: [],
-  priority: [],
-  verification: [],
-  tags: [],
+  status: '',
+  priority: '',
+  verification: '',
+  tags: '',
 };
 
 interface AppState {
@@ -44,10 +44,10 @@ const App: React.FC = () => {
   const [requirementFilter, setRequirementFilter] = useState<RequirementFilter>(EMPTY_FILTER);
 
   const isFilterActive =
-    requirementFilter.status.length > 0 ||
-    requirementFilter.priority.length > 0 ||
-    requirementFilter.verification.length > 0 ||
-    requirementFilter.tags.length > 0;
+    requirementFilter.status.trim().length > 0 ||
+    requirementFilter.priority.trim().length > 0 ||
+    requirementFilter.verification.trim().length > 0 ||
+    requirementFilter.tags.trim().length > 0;
 
   const handleNavigate = (page: Page) => {
     setState(prev => ({ ...prev, currentPage: page }));

@@ -194,19 +194,19 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
   // Apply shared RequirementFilter from App.tsx
   const filteredRequirements = useMemo(() => {
     if (!filter) return requirements;
-    const hasStatus = filter.status.length > 0;
-    const hasPriority = filter.priority.length > 0;
-    const hasVerification = filter.verification.length > 0;
-    const hasTags = filter.tags.length > 0;
-    if (!hasStatus && !hasPriority && !hasVerification && !hasTags) return requirements;
+    const statusQ = filter.status.trim().toLowerCase();
+    const priorityQ = filter.priority.trim().toLowerCase();
+    const verificationQ = filter.verification.trim().toLowerCase();
+    const tagsQ = filter.tags.trim().toLowerCase();
+    if (!statusQ && !priorityQ && !verificationQ && !tagsQ) return requirements;
 
     return requirements.filter((req) => {
-      if (hasStatus && !filter.status.includes(req.status || 'draft')) return false;
-      if (hasPriority && !filter.priority.includes(req.priority || 'medium')) return false;
-      if (hasVerification && !filter.verification.includes(req.verificationMethod || '')) return false;
-      if (hasTags) {
+      if (statusQ && !(req.status || 'draft').toLowerCase().includes(statusQ)) return false;
+      if (priorityQ && !(req.priority || 'medium').toLowerCase().includes(priorityQ)) return false;
+      if (verificationQ && !(req.verificationMethod || '').toLowerCase().includes(verificationQ)) return false;
+      if (tagsQ) {
         const reqTags = Array.isArray(req.tags) ? req.tags : [];
-        if (!filter.tags.some((t) => reqTags.includes(t))) return false;
+        if (!reqTags.some((t: string) => t.toLowerCase().includes(tagsQ))) return false;
       }
       return true;
     });
@@ -687,7 +687,7 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
                 {documentTitle} — Cross-document requirement linking and impact analysis
               </p>
             </div>
-            {filter && (filter.status.length > 0 || filter.priority.length > 0 || filter.verification.length > 0 || filter.tags.length > 0) && (
+            {filter && (filter.status.trim() || filter.priority.trim() || filter.verification.trim() || filter.tags.trim()) && (
               <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 text-xs gap-1">
                 Filtered: {filteredRequirements.length}/{requirements.length}
               </Badge>
