@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   GitBranch as BranchIcon,
   Plus as AddIcon,
@@ -165,8 +165,24 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
   const nodeX = (id: string) => (layout[id]?.x ?? 0) * COL_WIDTH + PADDING_X;
   const nodeY = (id: string) => (layout[id]?.y ?? 0) * ROW_HEIGHT + PADDING_Y;
 
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStart = useRef({ x: 0, y: 0 });
+
+  const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
+    setIsDragging(true);
+    dragStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!isDragging) return;
+    setPan({ x: e.clientX - dragStart.current.x, y: e.clientY - dragStart.current.y });
+  };
+
+  const handleMouseUp = () => setIsDragging(false);
+
   return (
-    <div className="overflow-auto border rounded-md bg-card">
+    <div className="overflow-hidden border rounded-md bg-card relative">
       {/* Legend */}
       <div className="flex items-center gap-3 px-4 py-2 border-b bg-muted/30 flex-wrap">
         {branches.map((b) => (
@@ -180,186 +196,208 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
         ))}
       </div>
 
-      <svg width={svgWidth} height={svgHeight} className="select-none">
-        {/* Branch vertical lane lines (background) */}
-        {branches.map((b) => {
-          const col = branchColumnMap[b.name] ?? 0;
-          const x = col * COL_WIDTH + PADDING_X;
-          const branchNodes = nodes.filter(n => n.branchName === b.name);
-          if (branchNodes.length === 0) return null;
-          const ys = branchNodes.map(n => layout[n.id]?.y ?? 0);
-          const minY = Math.min(...ys) * ROW_HEIGHT + PADDING_Y;
-          const maxY = Math.max(...ys) * ROW_HEIGHT + PADDING_Y;
-          return (
-            <line
-              key={`bl-${b.id}`}
-              x1={x}
-              y1={minY - 15}
-              x2={x}
-              y2={maxY + 25}
-              stroke={branchColor(b.name)}
-              strokeWidth={4}
-              opacity={0.08}
-              strokeLinecap="round"
-            />
-          );
-        })}
-
-        {/* Edges — draw BEFORE nodes so nodes sit on top */}
-        {edges.map((edge, i) => {
-          const fromNode = nodeMap[edge.from];
-          const toNode = nodeMap[edge.to];
-          if (!fromNode || !toNode || !layout[edge.from] || !layout[edge.to]) return null;
-
-          const fx = nodeX(edge.from);
-          const fy = nodeY(edge.from);
-          const tx = nodeX(edge.to);
-          const ty = nodeY(edge.to);
-
-          const isCrossBranch = fromNode.branchName !== toNode.branchName;
-
-          // Same-branch parent edge: simple vertical line
-          if (!isCrossBranch) {
+      <svg
+        width={svgWidth}
+        height={svgHeight}
+        className="select-none"
+        style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+      >
+        <defs>
+          <filter id="soft-glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="2" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+          <filter id="soft-shadow" x="-50%" y="-50%" width="200%" height="200%">
+            <feDropShadow dx="0" dy="1" stdDeviation="2" floodOpacity="0.25" />
+          </filter>
+        </defs>
+        <g transform={`translate(${pan.x}, ${pan.y})`}>
+          {/* Branch vertical lane lines (background) */}
+          {branches.map((b) => {
+            const col = branchColumnMap[b.name] ?? 0;
+            const x = col * COL_WIDTH + PADDING_X;
+            const branchNodes = nodes.filter(n => n.branchName === b.name);
+            if (branchNodes.length === 0) return null;
+            const ys = branchNodes.map(n => layout[n.id]?.y ?? 0);
+            const minY = Math.min(...ys) * ROW_HEIGHT + PADDING_Y;
+            const maxY = Math.max(...ys) * ROW_HEIGHT + PADDING_Y;
             return (
               <line
-                key={`e${i}`}
-                x1={fx}
-                y1={fy + NODE_R}
-                x2={tx}
-                y2={ty - NODE_R}
-                stroke={branchColor(toNode.branchName)}
-                strokeWidth={2}
-                opacity={0.5}
+                key={`bl-${b.id}`}
+                x1={x}
+                y1={minY - 15}
+                x2={x}
+                y2={maxY + 25}
+                stroke={branchColor(b.name)}
+                strokeWidth={4}
+                opacity={0.08}
+                strokeLinecap="round"
               />
             );
-          }
+          })}
 
-          // Cross-branch edge (merge): draw a smooth curve
-          // from the source node down and across to the target node
-          // Use the SOURCE branch color for the merge line
-          const midY = fy + (ty - fy) * 0.5;
-          const sourceColor = branchColor(fromNode.branchName);
+          {/* Edges — draw BEFORE nodes so nodes sit on top */}
+          {edges.map((edge, i) => {
+            const fromNode = nodeMap[edge.from];
+            const toNode = nodeMap[edge.to];
+            if (!fromNode || !toNode || !layout[edge.from] || !layout[edge.to]) return null;
 
-          return (
-            <path
-              key={`e${i}`}
-              d={`M ${fx} ${fy + NODE_R} C ${fx} ${midY}, ${tx} ${midY}, ${tx} ${ty - NODE_R}`}
-              fill="none"
-              stroke={sourceColor}
-              strokeWidth={2.5}
-              strokeDasharray="8,4"
-              opacity={0.8}
-            />
-          );
-        })}
+            const fx = nodeX(edge.from);
+            const fy = nodeY(edge.from);
+            const tx = nodeX(edge.to);
+            const ty = nodeY(edge.to);
 
-        {/* Nodes */}
-        {nodes.map((node) => {
-          if (!layout[node.id]) return null;
-          const x = nodeX(node.id);
-          const y = nodeY(node.id);
-          const color = branchColor(node.branchName);
-          const isCurrentBranchHead = branches.some(
-            b => b.name === currentBranch && b.headCommitId === node.id
-          );
+            const isCrossBranch = fromNode.branchName !== toNode.branchName;
 
-          return (
-            <g key={node.id}>
-              {/* Glow ring for current branch head */}
-              {isCurrentBranchHead && (
-                <circle cx={x} cy={y} r={NODE_R + 5} fill="none" stroke={color} strokeWidth={2} opacity={0.3}>
-                  <animate attributeName="r" values={`${NODE_R + 4};${NODE_R + 7};${NODE_R + 4}`} dur="2s" repeatCount="indefinite" />
-                  <animate attributeName="opacity" values="0.3;0.1;0.3" dur="2s" repeatCount="indefinite" />
-                </circle>
-              )}
-              {/* Node circle */}
-              <circle
-                cx={x}
-                cy={y}
-                r={NODE_R}
-                fill={node.isRevert ? '#fef2f2' : color}
-                stroke={node.isRevert ? '#ef4444' : color}
-                strokeWidth={node.isMerge || node.isRevert ? 3 : 2}
-                className="cursor-pointer"
+            // Same-branch parent edge: simple vertical line
+            if (!isCrossBranch) {
+              return (
+                <line
+                  key={`e${i}`}
+                  x1={fx}
+                  y1={fy + NODE_R}
+                  x2={tx}
+                  y2={ty - NODE_R}
+                  stroke={branchColor(toNode.branchName)}
+                  strokeWidth={2}
+                  opacity={0.5}
+                />
+              );
+            }
+
+            // Cross-branch edge (merge): draw a smooth curve
+            const midY = fy + (ty - fy) * 0.5;
+            const sourceColor = branchColor(fromNode.branchName);
+
+            return (
+              <path
+                key={`e${i}`}
+                d={`M ${fx} ${fy + NODE_R} C ${fx} ${midY}, ${tx} ${midY}, ${tx} ${ty - NODE_R}`}
+                fill="none"
+                stroke={sourceColor}
+                strokeWidth={2.5}
+                strokeDasharray="8,4"
+                opacity={0.8}
               />
-              {/* Merge icon inside node */}
-              {node.isMerge && (
-                <text x={x} y={y + 4} textAnchor="middle" fontSize={10} fill="#fff" fontWeight="bold">M</text>
-              )}
-              {/* Revert icon inside node */}
-              {node.isRevert && !node.isMerge && (
-                <text x={x} y={y + 4} textAnchor="middle" fontSize={10} fill="#ef4444">R</text>
-              )}
-              {/* Commit message label */}
-              <text
-                x={x + NODE_R + 8}
-                y={y + 4}
-                className="fill-foreground"
-                fontSize={11}
-              >
-                {node.message.length > 40 ? node.message.slice(0, 40) + '...' : node.message}
-              </text>
-              {/* Author + time */}
-              <text
-                x={x + NODE_R + 8}
-                y={y + 16}
-                className="fill-muted-foreground"
-                fontSize={9}
-              >
-                {node.author} · {new Date(node.createdAt).toLocaleDateString()}
-              </text>
-              {/* Revert button */}
-              {onRevert && (
-                <g
-                  className="opacity-0 hover:opacity-100 cursor-pointer"
-                  onClick={() => onRevert(node.id, node.branchName)}
+            );
+          })}
+
+          {/* Nodes */}
+          {nodes.map((node) => {
+            if (!layout[node.id]) return null;
+            const x = nodeX(node.id);
+            const y = nodeY(node.id);
+            const color = branchColor(node.branchName);
+            const isCurrentBranchHead = branches.some(
+              b => b.name === currentBranch && b.headCommitId === node.id
+            );
+
+            return (
+              <g key={node.id}>
+                {/* Soft blink ring for active (current branch head) node */}
+                {isCurrentBranchHead && (
+                  <circle cx={x} cy={y} r={NODE_R + 4} fill="none" stroke={color} strokeWidth={1.5} opacity={0.15} filter="url(#soft-glow)">
+                    <animate attributeName="r" values={`${NODE_R + 4};${NODE_R + 10};${NODE_R + 4}`} dur="3s" repeatCount="indefinite" />
+                    <animate attributeName="opacity" values="0.15;0.4;0.15" dur="3s" repeatCount="indefinite" />
+                  </circle>
+                )}
+                {/* Node circle with soft edges */}
+                <circle
+                  cx={x}
+                  cy={y}
+                  r={NODE_R}
+                  fill={node.isRevert ? '#fef2f2' : color}
+                  stroke={node.isRevert ? '#ef4444' : color}
+                  strokeWidth={node.isMerge || node.isRevert ? 2.5 : 1.5}
+                  filter="url(#soft-shadow)"
+                  className="cursor-pointer"
+                />
+                {/* Merge icon inside node */}
+                {node.isMerge && (
+                  <text x={x} y={y + 4} textAnchor="middle" fontSize={10} fill="#fff" fontWeight="bold">M</text>
+                )}
+                {/* Revert icon inside node */}
+                {node.isRevert && !node.isMerge && (
+                  <text x={x} y={y + 4} textAnchor="middle" fontSize={10} fill="#ef4444">R</text>
+                )}
+                {/* Commit message label */}
+                <text
+                  x={x + NODE_R + 8}
+                  y={y + 4}
+                  className="fill-foreground"
+                  fontSize={11}
                 >
-                  <rect
-                    x={x - NODE_R - 20}
-                    y={y - 9}
-                    width={18}
-                    height={18}
-                    rx={3}
-                    fill="hsl(var(--destructive))"
-                    opacity={0.85}
-                  />
-                  <text x={x - NODE_R - 11} y={y + 4} textAnchor="middle" fontSize={10} fill="#fff">R</text>
-                </g>
-              )}
-            </g>
-          );
-        })}
+                  {node.message.length > 40 ? node.message.slice(0, 40) + '...' : node.message}
+                </text>
+                {/* Author + time */}
+                <text
+                  x={x + NODE_R + 8}
+                  y={y + 16}
+                  className="fill-muted-foreground"
+                  fontSize={9}
+                >
+                  {node.author} · {new Date(node.createdAt).toLocaleDateString()}
+                </text>
+                {/* Revert button */}
+                {onRevert && (
+                  <g
+                    className="opacity-0 hover:opacity-100 cursor-pointer"
+                    onClick={() => onRevert(node.id, node.branchName)}
+                  >
+                    <rect
+                      x={x - NODE_R - 20}
+                      y={y - 9}
+                      width={18}
+                      height={18}
+                      rx={3}
+                      fill="hsl(var(--destructive))"
+                      opacity={0.85}
+                    />
+                    <text x={x - NODE_R - 11} y={y + 4} textAnchor="middle" fontSize={10} fill="#fff">R</text>
+                  </g>
+                )}
+              </g>
+            );
+          })}
 
-        {/* Branch name labels at the top */}
-        {branches.map((b) => {
-          const col = branchColumnMap[b.name] ?? 0;
-          const x = col * COL_WIDTH + PADDING_X;
-          const branchNodes = nodes.filter(n => n.branchName === b.name);
-          if (branchNodes.length === 0) return null;
-          return (
-            <g key={`label-${b.id}`}>
-              <rect
-                x={x - 30}
-                y={6}
-                width={60}
-                height={18}
-                rx={4}
-                fill={branchColor(b.name)}
-                opacity={0.15}
-              />
-              <text
-                x={x}
-                y={19}
-                textAnchor="middle"
-                className="font-semibold"
-                fill={branchColor(b.name)}
-                fontSize={11}
-              >
-                {b.name}
-              </text>
-            </g>
-          );
-        })}
+          {/* Branch name labels at the top */}
+          {branches.map((b) => {
+            const col = branchColumnMap[b.name] ?? 0;
+            const x = col * COL_WIDTH + PADDING_X;
+            const branchNodes = nodes.filter(n => n.branchName === b.name);
+            if (branchNodes.length === 0) return null;
+            return (
+              <g key={`label-${b.id}`}>
+                <rect
+                  x={x - 30}
+                  y={6}
+                  width={60}
+                  height={18}
+                  rx={4}
+                  fill={branchColor(b.name)}
+                  opacity={0.15}
+                />
+                <text
+                  x={x}
+                  y={19}
+                  textAnchor="middle"
+                  className="font-semibold"
+                  fill={branchColor(b.name)}
+                  fontSize={11}
+                >
+                  {b.name}
+                </text>
+              </g>
+            );
+          })}
+        </g>
       </svg>
     </div>
   );
