@@ -66,6 +66,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 import type { Requirement, EditHistoryEntry, RequirementFilter } from '../../types/index';
@@ -280,6 +281,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
     tags: false,
   });
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 50 });
+  const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
 
   // Edit history state
   const [selectedRequirement, setSelectedRequirement] = useState<Requirement | null>(null);
@@ -310,6 +312,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
 
   useEffect(() => {
     loadData();
+    setRowSelection({});
   }, [documentId]);
 
   // Apply highlight requirement filter when highlightReqId changes
@@ -717,6 +720,92 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
     }
   };
 
+  const selectedRowIds = useMemo(() => {
+    return Object.keys(rowSelection).filter((id) => rowSelection[id]);
+  }, [rowSelection]);
+
+  const handleBulkDelete = async () => {
+    if (selectedRowIds.length === 0) return;
+    if (!window.confirm(`Delete ${selectedRowIds.length} selected requirements?`)) return;
+    try {
+      let failed = 0;
+      for (const id of selectedRowIds) {
+        const result = await API.deleteRequirement(id);
+        if (!result.success) failed++;
+      }
+      setRowSelection({});
+      await loadData();
+      setSnackbar({
+        open: true,
+        message: `Deleted ${selectedRowIds.length - failed} requirements${failed > 0 ? `, ${failed} failed` : ''}`,
+        severity: failed > 0 ? 'error' : 'success',
+      });
+    } catch (error) {
+      console.error('Bulk delete failed:', error);
+      setSnackbar({ open: true, message: 'Bulk delete failed', severity: 'error' });
+    }
+  };
+
+  const handleBulkUpdateStatus = async (status: string) => {
+    if (selectedRowIds.length === 0) return;
+    const updates = selectedRowIds.map((id) => ({ id, status }));
+    try {
+      const result = await API.batchUpdateRequirements(updates);
+      setRowSelection({});
+      await loadData();
+      setSnackbar({
+        open: true,
+        message: `Updated ${result.updated || selectedRowIds.length} requirements to ${status}`,
+        severity: result.errors && result.errors.length > 0 ? 'error' : 'success',
+      });
+    } catch (error) {
+      console.error('Bulk status update failed:', error);
+      setSnackbar({ open: true, message: 'Bulk update failed', severity: 'error' });
+    }
+  };
+
+  const handleBulkUpdatePriority = async (priority: string) => {
+    if (selectedRowIds.length === 0) return;
+    const updates = selectedRowIds.map((id) => ({ id, priority }));
+    try {
+      const result = await API.batchUpdateRequirements(updates);
+      setRowSelection({});
+      await loadData();
+      setSnackbar({
+        open: true,
+        message: `Updated ${result.updated || selectedRowIds.length} requirements to ${priority}`,
+        severity: result.errors && result.errors.length > 0 ? 'error' : 'success',
+      });
+    } catch (error) {
+      console.error('Bulk priority update failed:', error);
+      setSnackbar({ open: true, message: 'Bulk update failed', severity: 'error' });
+    }
+  };
+
+  const handleBulkAddTag = async (tag: string) => {
+    if (selectedRowIds.length === 0 || !tag.trim()) return;
+    const trimmed = tag.trim();
+    try {
+      const reqs = requirements.filter((r) => selectedRowIds.includes(r.id));
+      const updates = reqs.map((r) => {
+        const tags = new Set(r.tags || []);
+        tags.add(trimmed);
+        return { id: r.id, tags: Array.from(tags) };
+      });
+      const result = await API.batchUpdateRequirements(updates);
+      setRowSelection({});
+      await loadData();
+      setSnackbar({
+        open: true,
+        message: `Added tag "${trimmed}" to ${result.updated || selectedRowIds.length} requirements`,
+        severity: result.errors && result.errors.length > 0 ? 'error' : 'success',
+      });
+    } catch (error) {
+      console.error('Bulk add tag failed:', error);
+      setSnackbar({ open: true, message: 'Bulk add tag failed', severity: 'error' });
+    }
+  };
+
   const handleContextMenu = useCallback((event: React.MouseEvent, rowId: string) => {
     event.preventDefault();
     setContextMenu({ mouseX: event.clientX, mouseY: event.clientY, rowId });
@@ -767,6 +856,26 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
 
   /* ─── Column Definitions ─── */
   const columns = useMemo<ColumnDef<Requirement, string>[]>(() => [
+    {
+      id: 'select',
+      header: ({ table }) => (
+        <Checkbox
+          checked={table.getIsAllPageRowsSelected()}
+          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+          aria-label="Select all"
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={(value) => row.toggleSelected(!!value)}
+          aria-label="Select row"
+        />
+      ),
+      enableSorting: false,
+      enableHiding: false,
+      size: 40,
+    },
     {
       accessorKey: 'level',
       header: 'Level',
@@ -1083,7 +1192,11 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
       globalFilter,
       columnVisibility,
       pagination,
+      rowSelection,
     },
+    enableRowSelection: true,
+    onRowSelectionChange: setRowSelection,
+    getRowId: (row) => row.id,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onGlobalFilterChange: setGlobalFilter,
@@ -1194,6 +1307,51 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
           </div>
         </div>
       </div>
+
+      {/* ─── Bulk Actions Bar ─── */}
+      {selectedRowIds.length > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 border-b bg-primary/5 flex-shrink-0">
+          <span className="text-sm font-medium mr-1">
+            {selectedRowIds.length} selected
+          </span>
+          <Button variant="outline" size="sm" onClick={() => handleBulkUpdateStatus('draft')}>
+            Set Draft
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => handleBulkUpdateStatus('review')}>
+            Set Review
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => handleBulkUpdateStatus('approved')}>
+            Set Approved
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => handleBulkUpdatePriority('high')}>
+            Set High
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => handleBulkUpdatePriority('medium')}>
+            Set Medium
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => handleBulkUpdatePriority('low')}>
+            Set Low
+          </Button>
+          <Input
+            placeholder="Add tag..."
+            className="h-7 w-28 text-xs"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleBulkAddTag((e.target as HTMLInputElement).value);
+                (e.target as HTMLInputElement).value = '';
+              }
+            }}
+          />
+          <div className="flex-1" />
+          <Button variant="ghost" size="sm" onClick={() => setRowSelection({})}>
+            Clear
+          </Button>
+          <Button variant="destructive" size="sm" onClick={handleBulkDelete}>
+            <Trash2 className="size-3.5" />
+            Delete
+          </Button>
+        </div>
+      )}
 
       {/* ─── Main Table ─── */}
       <div className="flex-1 min-h-0 overflow-auto" onContextMenu={(e) => {
