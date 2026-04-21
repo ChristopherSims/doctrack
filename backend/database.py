@@ -253,6 +253,22 @@ def init_db():
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_reviews_req ON requirement_reviews(requirementId)')
     
+    # Create baselines table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS baselines (
+        id TEXT PRIMARY KEY,
+        documentId TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        commitId TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        createdBy TEXT,
+        FOREIGN KEY (documentId) REFERENCES documents(id),
+        FOREIGN KEY (commitId) REFERENCES commits(id)
+    )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_baselines_doc ON baselines(documentId)')
+    
     # Migration: add lastEditedBy column to requirements table if not exists
     cursor.execute('PRAGMA table_info(requirements)')
     req_columns2 = [col[1] for col in cursor.fetchall()]
@@ -1681,6 +1697,55 @@ def delete_review(review_id):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('DELETE FROM requirement_reviews WHERE id = ?', (review_id,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+# --- Baselines ---
+
+def create_baseline(doc_id, name, commit_id, description=None, created_by=None):
+    """Create a baseline snapshot for a document. Returns the baseline dict."""
+    baseline_id = str(uuid4())
+    now = datetime.utcnow().isoformat()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+    INSERT INTO baselines (id, documentId, name, description, commitId, createdAt, createdBy)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (baseline_id, doc_id, name, description, commit_id, now, created_by))
+    conn.commit()
+    cursor.execute('SELECT * FROM baselines WHERE id = ?', (baseline_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row)
+
+def get_baselines(doc_id):
+    """Get all baselines for a document, ordered by createdAt DESC."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT * FROM baselines WHERE documentId = ? ORDER BY createdAt DESC',
+        (doc_id,)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def get_baseline(baseline_id):
+    """Get a single baseline by id."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM baselines WHERE id = ?', (baseline_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def delete_baseline(baseline_id):
+    """Delete a baseline by id. Returns True if deleted."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM baselines WHERE id = ?', (baseline_id,))
     deleted = cursor.rowcount > 0
     conn.commit()
     conn.close()

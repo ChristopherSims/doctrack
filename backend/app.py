@@ -14,6 +14,7 @@ from database import get_comments, create_comment, delete_comment
 from database import get_dashboard_stats
 from database import lint_requirements
 from database import create_review, get_reviews, update_review, delete_review
+from database import create_baseline, get_baselines, get_baseline, delete_baseline
 from export import export_csv, export_word, export_pdf
 import os
 import csv
@@ -799,6 +800,57 @@ def delete_req_review(review_id):
     except Exception as e:
         logger.error(f"Error deleting review {review_id}: {e}")
         return jsonify({'success': False, 'error': 'Failed to delete review'}), 500
+
+# --- Baselines ---
+
+@app.route('/api/documents/<doc_id>/baselines', methods=['GET'])
+def get_doc_baselines(doc_id):
+    try:
+        baselines = get_baselines(doc_id)
+        return jsonify({'success': True, 'data': baselines})
+    except Exception as e:
+        logger.error(f"Error fetching baselines for document {doc_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch baselines'}), 500
+
+@app.route('/api/documents/<doc_id>/baselines', methods=['POST'])
+def create_doc_baseline(doc_id):
+    try:
+        data, err = validate_json(required_fields=['name', 'commitId'])
+        if err:
+            return err
+        baseline = create_baseline(
+            doc_id,
+            data['name'],
+            data['commitId'],
+            data.get('description'),
+            data.get('createdBy')
+        )
+        return jsonify({'success': True, 'data': baseline}), 201
+    except Exception as e:
+        logger.error(f"Error creating baseline for document {doc_id}: {e}")
+        return jsonify({'success': False, 'error': f'Failed to create baseline: {str(e)}'}), 400
+
+@app.route('/api/baselines/<baseline_id>', methods=['GET'])
+def get_baseline_by_id(baseline_id):
+    try:
+        baseline = get_baseline(baseline_id)
+        if not baseline:
+            return jsonify({'success': False, 'error': 'Baseline not found'}), 404
+        return jsonify({'success': True, 'data': baseline})
+    except Exception as e:
+        logger.error(f"Error fetching baseline {baseline_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch baseline'}), 500
+
+@app.route('/api/baselines/<baseline_id>', methods=['DELETE'])
+def delete_doc_baseline(baseline_id):
+    try:
+        deleted = delete_baseline(baseline_id)
+        if not deleted:
+            return jsonify({'success': False, 'error': 'Baseline not found'}), 404
+        return jsonify({'success': True, 'data': None})
+    except Exception as e:
+        logger.error(f"Error deleting baseline {baseline_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to delete baseline'}), 500
 
 # --- Health check ---
 

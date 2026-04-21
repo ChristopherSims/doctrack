@@ -5,6 +5,8 @@ import {
   Plus as AddIcon,
   Tag as TagIcon,
   RefreshCw as RefreshIcon,
+  Package,
+  Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -17,6 +19,13 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Tooltip,
   TooltipTrigger,
@@ -33,9 +42,14 @@ interface HistoryPageProps {
 const HistoryPage: React.FC<HistoryPageProps> = ({ documentId, documentTitle }) => {
   const [commits, setCommits] = useState<any[]>([]);
   const [tags, setTags] = useState<any[]>([]);
+  const [baselines, setBaselines] = useState<any[]>([]);
   const [openCommitDialog, setOpenCommitDialog] = useState(false);
   const [commitMessage, setCommitMessage] = useState('');
   const [commitAuthor, setCommitAuthor] = useState('system');
+  const [openBaselineDialog, setOpenBaselineDialog] = useState(false);
+  const [baselineName, setBaselineName] = useState('');
+  const [baselineDesc, setBaselineDesc] = useState('');
+  const [baselineCommitId, setBaselineCommitId] = useState('');
 
   useEffect(() => {
     loadHistory();
@@ -43,12 +57,14 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ documentId, documentTitle }) 
 
   const loadHistory = async () => {
     try {
-      const [commitResult, tagResult] = await Promise.all([
+      const [commitResult, tagResult, baselineResult] = await Promise.all([
         API.getCommits(documentId),
         API.getTags(documentId),
+        API.getBaselines(documentId),
       ]);
       if (commitResult.success) setCommits(commitResult.data || []);
       if (tagResult.success) setTags(tagResult.data || []);
+      if (baselineResult.success) setBaselines(baselineResult.data || []);
     } catch (error) {
       console.error('Failed to load history:', error);
     }
@@ -67,6 +83,37 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ documentId, documentTitle }) 
       }
     } catch (error) {
       console.error('Failed to create commit:', error);
+    }
+  };
+
+  const handleCreateBaseline = async () => {
+    if (!baselineName.trim() || !baselineCommitId) return;
+    try {
+      const result = await API.createBaseline(documentId, {
+        name: baselineName.trim(),
+        commitId: baselineCommitId,
+        description: baselineDesc.trim() || undefined,
+        createdBy: commitAuthor,
+      });
+      if (result.success) {
+        setOpenBaselineDialog(false);
+        setBaselineName('');
+        setBaselineDesc('');
+        setBaselineCommitId('');
+        loadHistory();
+      }
+    } catch (error) {
+      console.error('Failed to create baseline:', error);
+    }
+  };
+
+  const handleDeleteBaseline = async (baselineId: string) => {
+    if (!window.confirm('Delete this baseline?')) return;
+    try {
+      const result = await API.deleteBaseline(baselineId);
+      if (result.success) loadHistory();
+    } catch (error) {
+      console.error('Failed to delete baseline:', error);
     }
   };
 
@@ -94,6 +141,14 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ documentId, documentTitle }) 
           </TooltipProvider>
           <Button
             size="sm"
+            variant="outline"
+            onClick={() => setOpenBaselineDialog(true)}
+          >
+            <Package className="h-4 w-4 mr-1" />
+            New Baseline
+          </Button>
+          <Button
+            size="sm"
             onClick={() => setOpenCommitDialog(true)}
           >
             <AddIcon className="h-4 w-4" />
@@ -116,6 +171,36 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ documentId, documentTitle }) 
               >
                 {`${tag.name} (${tag.commitId?.substring(0, 8)})`}
               </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Baselines Section */}
+      {baselines.length > 0 && (
+        <div className="rounded-lg border bg-card p-4 mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-semibold">
+              <Package className="inline h-4 w-4 mr-1 align-middle" /> Baselines
+            </p>
+            <Button variant="ghost" size="sm" onClick={() => setOpenBaselineDialog(true)}>
+              <AddIcon className="h-3.5 w-3.5 mr-1" /> New
+            </Button>
+          </div>
+          <div className="space-y-2">
+            {baselines.map((bl) => (
+              <div key={bl.id} className="flex items-center justify-between border rounded px-3 py-2">
+                <div>
+                  <span className="text-sm font-medium">{bl.name}</span>
+                  {bl.description && <p className="text-xs text-muted-foreground">{bl.description}</p>}
+                  <p className="text-xs text-muted-foreground">
+                    {bl.createdBy || 'unknown'} · {new Date(bl.createdAt).toLocaleString()} · commit {bl.commitId?.substring(0, 8)}
+                  </p>
+                </div>
+                <Button variant="ghost" size="icon-sm" onClick={() => handleDeleteBaseline(bl.id)}>
+                  <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                </Button>
+              </div>
             ))}
           </div>
         </div>
@@ -200,6 +285,59 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ documentId, documentTitle }) 
             </Button>
             <Button onClick={handleCreateCommit} disabled={!commitMessage}>
               Commit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Baseline Dialog */}
+      <Dialog open={openBaselineDialog} onOpenChange={setOpenBaselineDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Baseline</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="baseline-name">Name *</Label>
+              <Input
+                id="baseline-name"
+                value={baselineName}
+                onChange={(e) => setBaselineName(e.target.value)}
+                placeholder="e.g. v1.0, Sprint-3, Release Candidate"
+                required
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="baseline-commit">Commit *</Label>
+              <Select value={baselineCommitId} onValueChange={setBaselineCommitId}>
+                <SelectTrigger id="baseline-commit">
+                  <SelectValue placeholder="Select a commit" />
+                </SelectTrigger>
+                <SelectContent>
+                  {commits.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.message} ({c.id?.substring(0, 8)})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="baseline-desc">Description</Label>
+              <Input
+                id="baseline-desc"
+                value={baselineDesc}
+                onChange={(e) => setBaselineDesc(e.target.value)}
+                placeholder="Optional description"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpenBaselineDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateBaseline} disabled={!baselineName.trim() || !baselineCommitId}>
+              Create Baseline
             </Button>
           </DialogFooter>
         </DialogContent>

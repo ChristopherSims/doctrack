@@ -432,6 +432,28 @@ export async function deleteReview(reviewId: string): Promise<ApiResponse<any>> 
   return response.json();
 }
 
+// Baselines API
+export async function getBaselines(docId: string): Promise<ApiResponse<any[]>> {
+  const response = await fetch(`${API_BASE_URL}/documents/${encodeURIComponent(docId)}/baselines`);
+  return response.json();
+}
+
+export async function createBaseline(docId: string, data: { name: string; commitId: string; description?: string; createdBy?: string }): Promise<ApiResponse<any>> {
+  const response = await fetch(`${API_BASE_URL}/documents/${encodeURIComponent(docId)}/baselines`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return response.json();
+}
+
+export async function deleteBaseline(baselineId: string): Promise<ApiResponse<any>> {
+  const response = await fetch(`${API_BASE_URL}/baselines/${encodeURIComponent(baselineId)}`, {
+    method: 'DELETE',
+  });
+  return response.json();
+}
+
 // Cross-doc traceability tree
 export async function getCrossDocTraceTree(
   docId: string
