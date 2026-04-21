@@ -12,6 +12,7 @@ from database import add_edit_history, get_edit_history, get_edit_history_for_do
 from database import get_unique_tags
 from database import get_comments, create_comment, delete_comment
 from database import get_dashboard_stats
+from database import lint_requirements
 from export import export_csv, export_word, export_pdf
 import os
 import csv
@@ -134,6 +135,18 @@ def document_stats(doc_id):
     except Exception as e:
         logger.error(f"Error fetching stats for document {doc_id}: {e}")
         return jsonify({'success': False, 'error': 'Failed to fetch document stats'}), 500
+
+@app.route('/api/documents/<doc_id>/lint', methods=['GET'])
+def lint_document(doc_id):
+    try:
+        document = get_document_db(doc_id)
+        if not document:
+            return jsonify({'success': False, 'error': 'Document not found'}), 404
+        issues = lint_requirements(doc_id)
+        return jsonify({'success': True, 'data': issues, 'count': len(issues)})
+    except Exception as e:
+        logger.error(f"Error linting document {doc_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to lint document'}), 500
 
 # --- Requirement Routes ---
 

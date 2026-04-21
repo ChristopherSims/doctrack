@@ -395,6 +395,12 @@ export async function getDashboard(): Promise<ApiResponse<any>> {
   return response.json();
 }
 
+// Lint API
+export async function lintDocument(docId: string): Promise<ApiResponse<any[]>> {
+  const response = await fetch(`${API_BASE_URL}/documents/${encodeURIComponent(docId)}/lint`);
+  return response.json();
+}
+
 // Cross-doc traceability tree
 export async function getCrossDocTraceTree(
   docId: string

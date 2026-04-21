@@ -1615,6 +1615,105 @@ def delete_comment(comment_id):
     conn.close()
     return deleted
 
+# --- Linting ---
+
+AMBIGUOUS_WORDS = [
+    'etc', 'etc.', 'and/or', 'and so on', 'user-friendly', 'easy to use',
+    'sufficient', 'adequate', 'appropriate', 'reasonable', 'as needed',
+    'as required', 'may', 'might', 'could', 'should', 'shall be considered',
+    'generally', 'usually', 'typically', 'as appropriate', 'if applicable',
+]
+
+def lint_requirements(doc_id):
+    """Lint all requirements in a document and return quality issues.
+
+    Returns list of {
+        requirementId, requirementTitle, level,
+        issues: [{severity, message, field}]
+    }
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT id, title, description, level, verificationMethod FROM requirements WHERE documentId = ?', (doc_id,))
+    rows = cursor.fetchall()
+    conn.close()
+
+    # Build title index for duplicate detection
+    title_map = {}
+    for row in rows:
+        title_norm = (row[1] or '').lower().strip()
+        if title_norm:
+            title_map.setdefault(title_norm, []).append(row[0])
+
+    results = []
+    for row in rows:
+        req_id = row[0]
+        title = row[1] or ''
+        description = row[2] or ''
+        level = row[3] or ''
+        verification = row[4] or ''
+        issues = []
+
+        # Check ambiguous words in title and description
+        combined = (title + ' ' + description).lower()
+        for word in AMBIGUOUS_WORDS:
+            if word in combined:
+                issues.append({
+                    'severity': 'warning',
+                    'message': f'Ambiguous word: "{word}"',
+                    'field': 'description' if word in description.lower() else 'title',
+                })
+
+        # Missing verification method
+        if not verification or verification.strip() == '':
+            issues.append({
+                'severity': 'error',
+                'message': 'Missing verification method',
+                'field': 'verificationMethod',
+            })
+
+        # Length checks
+        desc_text = description.strip()
+        if len(desc_text) < 20:
+            issues.append({
+                'severity': 'warning',
+                'message': 'Description is very short (< 20 chars)',
+                'field': 'description',
+            })
+        if len(desc_text) > 2000:
+            issues.append({
+                'severity': 'warning',
+                'message': 'Description is very long (> 2000 chars)',
+                'field': 'description',
+            })
+
+        # Empty title
+        if not title.strip():
+            issues.append({
+                'severity': 'error',
+                'message': 'Title is empty',
+                'field': 'title',
+            })
+
+        # Duplicate title
+        title_norm = title.lower().strip()
+        if title_norm and len(title_map.get(title_norm, [])) > 1:
+            issues.append({
+                'severity': 'error',
+                'message': 'Duplicate title detected',
+                'field': 'title',
+            })
+
+        if issues:
+            results.append({
+                'requirementId': req_id,
+                'requirementTitle': title,
+                'level': level,
+                'issues': issues,
+            })
+
+    return results
+
 # --- Dashboard Stats ---
 
 def get_dashboard_stats():

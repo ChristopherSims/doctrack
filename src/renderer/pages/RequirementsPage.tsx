@@ -30,6 +30,8 @@ import {
   ArrowDownLeft,
   Upload,
   MessageSquare,
+  AlertTriangle,
+  CheckCircle2,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -282,6 +284,10 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
   });
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 50 });
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
+
+  const [lintOpen, setLintOpen] = useState(false);
+  const [lintResults, setLintResults] = useState<any[]>([]);
+  const [lintLoading, setLintLoading] = useState(false);
 
   // Edit history state
   const [selectedRequirement, setSelectedRequirement] = useState<Requirement | null>(null);
@@ -806,6 +812,24 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
     }
   };
 
+  const handleLint = async () => {
+    setLintLoading(true);
+    try {
+      const result = await API.lintDocument(documentId);
+      if (result.success) {
+        setLintResults(result.data || []);
+        setLintOpen(true);
+      } else {
+        setSnackbar({ open: true, message: result.error || 'Lint failed', severity: 'error' });
+      }
+    } catch (error) {
+      console.error('Lint failed:', error);
+      setSnackbar({ open: true, message: 'Lint failed', severity: 'error' });
+    } finally {
+      setLintLoading(false);
+    }
+  };
+
   const handleContextMenu = useCallback((event: React.MouseEvent, rowId: string) => {
     event.preventDefault();
     setContextMenu({ mouseX: event.clientX, mouseY: event.clientY, rowId });
@@ -1270,6 +1294,10 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
             <Upload className="size-3.5" />
             Import CSV
           </Button>
+          <Button variant="outline" size="sm" onClick={handleLint} disabled={lintLoading}>
+            {lintLoading ? <Loader2 className="size-3.5 animate-spin" /> : <AlertTriangle className="size-3.5" />}
+            Lint
+          </Button>
         </div>
         <div className="flex items-center gap-2">
           {filter && (filter.title.trim() || filter.description.trim() || filter.status.trim() || filter.priority.trim() || filter.verification.trim() || filter.tags.trim()) && (
@@ -1350,6 +1378,68 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
             <Trash2 className="size-3.5" />
             Delete
           </Button>
+        </div>
+      )}
+
+      {/* ─── Lint Results Panel ─── */}
+      {lintOpen && (
+        <div className="border-b bg-yellow-50 dark:bg-yellow-950/20 flex-shrink-0">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-yellow-200 dark:border-yellow-900">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+              <span className="text-sm font-semibold">
+                Quality Issues ({lintResults.reduce((acc, r) => acc + r.issues.length, 0)})
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={handleLint} disabled={lintLoading}>
+                <Loader2 className={`h-3.5 w-3.5 mr-1 ${lintLoading ? 'animate-spin' : ''}`} />
+                Re-run
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setLintOpen(false)}>
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+          <div className="max-h-[200px] overflow-auto px-3 py-2">
+            {lintResults.length === 0 ? (
+              <div className="flex items-center gap-2 text-sm text-green-700 dark:text-green-400 py-2">
+                <CheckCircle2 className="h-4 w-4" />
+                No issues found. Great job!
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {lintResults.map((result) => (
+                  <div key={result.requirementId} className="rounded border bg-card p-2">
+                    <button
+                      className="text-sm font-medium hover:text-primary text-left"
+                      onClick={() => {
+                        setGlobalFilter(result.requirementId);
+                        setLintOpen(false);
+                      }}
+                    >
+                      {result.level} — {result.requirementTitle}
+                    </button>
+                    <div className="flex flex-wrap gap-1.5 mt-1">
+                      {result.issues.map((issue: any, idx: number) => (
+                        <Badge
+                          key={idx}
+                          variant="outline"
+                          className={`text-xs ${
+                            issue.severity === 'error'
+                              ? 'border-red-300 text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/30'
+                              : 'border-yellow-300 text-yellow-700 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-950/30'
+                          }`}
+                        >
+                          {issue.message}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
