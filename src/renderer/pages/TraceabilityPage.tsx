@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import TraceabilityTree from '@/components/TraceabilityTree';
+import TraceabilityGraph from '@/components/TraceabilityGraph';
 import type { Requirement, TraceabilityLink, Document, RequirementFilter } from '../../types/index';
 import * as API from '../../api/api';
 
@@ -198,6 +199,9 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
   const [crossDocTreeData, setCrossDocTreeData] = useState<any[]>([]);
   const [crossDocTreeLoading, setCrossDocTreeLoading] = useState(false);
 
+  // Graph view
+  const [graphSelectedNodeId, setGraphSelectedNodeId] = useState<string | null>(null);
+
   // Apply shared RequirementFilter from App.tsx
   const filteredRequirements = useMemo(() => {
     if (!filter) return requirements;
@@ -264,6 +268,54 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
       });
     }
   }, [searchQuery, tree]);
+
+  // Build graph nodes/edges from loaded requirements and linksMap
+  const { graphNodes, graphEdges } = useMemo(() => {
+    const reqs = filteredRequirements;
+    if (reqs.length === 0) return { graphNodes: [], graphEdges: [] };
+
+    // Layout: simple grid arrangement
+    const cols = Math.ceil(Math.sqrt(reqs.length));
+    const spacingX = 140;
+    const spacingY = 100;
+
+    const nodes = reqs.map((req, i) => ({
+      id: req.id,
+      label: req.title,
+      level: req.level || '1',
+      status: req.status || 'draft',
+      x: (i % cols) * spacingX + spacingX / 2,
+      y: Math.floor(i / cols) * spacingY + spacingY / 2,
+    }));
+
+    const edges: { source: string; target: string; linkType: string }[] = [];
+    const edgeSet = new Set<string>();
+
+    for (const req of reqs) {
+      const links = linksMap[req.id] || [];
+      for (const link of links) {
+        const otherId = link.sourceRequirementId === req.id ? link.targetRequirementId : link.sourceRequirementId;
+        if (reqs.some((r) => r.id === otherId)) {
+          const key = [link.sourceRequirementId, link.targetRequirementId].sort().join('-');
+          if (!edgeSet.has(key)) {
+            edgeSet.add(key);
+            edges.push({
+              source: link.sourceRequirementId,
+              target: link.targetRequirementId,
+              linkType: link.linkType,
+            });
+          }
+        }
+      }
+    }
+
+    return { graphNodes: nodes, graphEdges: edges };
+  }, [filteredRequirements, linksMap]);
+
+  // When tree changes, reset graph selection
+  useEffect(() => {
+    setGraphSelectedNodeId(null);
+  }, [documentId]);
 
   // Auto-expand top-level on first load
   useEffect(() => {
@@ -436,6 +488,17 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
       setLoadingLinks(false);
     }
   }, []);
+
+  // When graph node is clicked, select the requirement
+  const handleGraphNodeClick = useCallback((nodeId: string) => {
+    setGraphSelectedNodeId(nodeId);
+    const req = requirements.find((r) => r.id === nodeId);
+    if (req) {
+      setSelectedReq(req);
+      loadLinksForReq(req.id);
+      setImpactOpen(false);
+    }
+  }, [requirements, loadLinksForReq]);
 
   const handleSelectReq = (req: Requirement) => {
     if (selectedReq?.id === req.id) {
@@ -741,6 +804,10 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
             <TabsTrigger value="document-tree" className="gap-1.5">
               <Network className="size-3.5" />
               Document Tree
+            </TabsTrigger>
+            <TabsTrigger value="graph" className="gap-1.5">
+              <Network className="size-3.5" />
+              Graph
             </TabsTrigger>
             <TabsTrigger value="cross-doc" className="gap-1.5" onClick={() => { if (crossDocTreeData.length === 0) loadCrossDocTreeData(); }}>
               <GitBranch className="size-3.5" />
@@ -1051,6 +1118,16 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
               loading={crossDocTreeLoading}
               currentDocumentId={documentId}
               onNavigateToRequirement={onNavigateToRequirement}
+            />
+          </TabsContent>
+
+          {/* ─── Graph Tab ─── */}
+          <TabsContent value="graph" className="flex-1 min-h-0 mt-0">
+            <TraceabilityGraph
+              nodes={graphNodes}
+              edges={graphEdges}
+              selectedNodeId={graphSelectedNodeId}
+              onNodeClick={handleGraphNodeClick}
             />
           </TabsContent>
         </Tabs>
