@@ -11,6 +11,7 @@ import DiffViewPage from './pages/DiffViewPage';
 import TraceabilityPage from './pages/TraceabilityPage';
 import AuditLogPage from './pages/AuditLogPage';
 import DashboardPage from './pages/DashboardPage';
+import CommandPalette from './components/CommandPalette';
 import type { RequirementFilter } from '../types/index';
 
 export type Page = 'dashboard' | 'documents' | 'requirements' | 'history' | 'branches' | 'export' | 'settings' | 'diff' | 'traceability' | 'audit';
@@ -53,6 +54,20 @@ const App: React.FC = () => {
     requirementFilter.priority.trim().length > 0 ||
     requirementFilter.verification.trim().length > 0 ||
     requirementFilter.tags.trim().length > 0;
+
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // Global Cmd/Ctrl+K shortcut
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setPaletteOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const handleNavigate = (page: Page) => {
     setState(prev => ({ ...prev, currentPage: page }));
@@ -190,6 +205,16 @@ const App: React.FC = () => {
       <main className="flex-1 overflow-auto">
         {renderPage()}
       </main>
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        currentPage={state.currentPage}
+        selectedDocumentId={state.selectedDocumentId}
+        selectedDocumentTitle={state.selectedDocumentTitle}
+        onNavigate={handleNavigate}
+        onCreateDocument={() => handleNavigate('documents')}
+        onCreateRequirement={() => handleNavigate('requirements')}
+      />
     </div>
   );
 };
