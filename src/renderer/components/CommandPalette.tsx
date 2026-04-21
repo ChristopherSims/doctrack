@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  Command,
   FileText,
   LayoutDashboard,
   Settings,
@@ -84,7 +83,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({
         action: () => { onNavigate('audit'); onClose(); },
         keywords: 'audit log history activity',
       },
-    ];
+    ].filter(item => !item.id.startsWith('nav-') || item.id !== `nav-${currentPage}`);
 
     if (selectedDocumentId) {
       items.push(

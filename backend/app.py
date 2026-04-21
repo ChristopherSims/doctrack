@@ -13,6 +13,7 @@ from database import get_unique_tags
 from database import get_comments, create_comment, delete_comment
 from database import get_dashboard_stats
 from database import lint_requirements
+from database import create_review, get_reviews, update_review, delete_review
 from export import export_csv, export_word, export_pdf
 import os
 import csv
@@ -750,6 +751,54 @@ def delete_req_comment(comment_id):
     except Exception as e:
         logger.error(f"Error deleting comment {comment_id}: {e}")
         return jsonify({'success': False, 'error': 'Failed to delete comment'}), 500
+
+# --- Requirement Reviews ---
+
+@app.route('/api/requirements/<req_id>/reviews', methods=['GET'])
+def get_req_reviews(req_id):
+    try:
+        reviews = get_reviews(req_id)
+        return jsonify({'success': True, 'data': reviews})
+    except Exception as e:
+        logger.error(f"Error fetching reviews for requirement {req_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch reviews'}), 500
+
+@app.route('/api/requirements/<req_id>/reviews', methods=['POST'])
+def create_req_review(req_id):
+    try:
+        data, err = validate_json(required_fields=['reviewerName'])
+        if err:
+            return err
+        review = create_review(req_id, data['reviewerName'], data.get('comment'))
+        return jsonify({'success': True, 'data': review}), 201
+    except Exception as e:
+        logger.error(f"Error creating review for requirement {req_id}: {e}")
+        return jsonify({'success': False, 'error': f'Failed to create review: {str(e)}'}), 400
+
+@app.route('/api/reviews/<review_id>', methods=['PUT'])
+def update_req_review(review_id):
+    try:
+        data, err = validate_json(required_fields=['status'])
+        if err:
+            return err
+        review = update_review(review_id, data['status'], data.get('comment'))
+        if not review:
+            return jsonify({'success': False, 'error': 'Review not found'}), 404
+        return jsonify({'success': True, 'data': review})
+    except Exception as e:
+        logger.error(f"Error updating review {review_id}: {e}")
+        return jsonify({'success': False, 'error': f'Failed to update review: {str(e)}'}), 400
+
+@app.route('/api/reviews/<review_id>', methods=['DELETE'])
+def delete_req_review(review_id):
+    try:
+        deleted = delete_review(review_id)
+        if not deleted:
+            return jsonify({'success': False, 'error': 'Review not found'}), 404
+        return jsonify({'success': True, 'data': None})
+    except Exception as e:
+        logger.error(f"Error deleting review {review_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to delete review'}), 500
 
 # --- Health check ---
 

@@ -401,6 +401,37 @@ export async function lintDocument(docId: string): Promise<ApiResponse<any[]>> {
   return response.json();
 }
 
+// Requirement Reviews API
+export async function getReviews(reqId: string): Promise<ApiResponse<any[]>> {
+  const response = await fetch(`${API_BASE_URL}/requirements/${encodeURIComponent(reqId)}/reviews`);
+  return response.json();
+}
+
+export async function createReview(reqId: string, data: { reviewerName: string; comment?: string }): Promise<ApiResponse<any>> {
+  const response = await fetch(`${API_BASE_URL}/requirements/${encodeURIComponent(reqId)}/reviews`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return response.json();
+}
+
+export async function updateReview(reviewId: string, data: { status: string; comment?: string }): Promise<ApiResponse<any>> {
+  const response = await fetch(`${API_BASE_URL}/reviews/${encodeURIComponent(reviewId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return response.json();
+}
+
+export async function deleteReview(reviewId: string): Promise<ApiResponse<any>> {
+  const response = await fetch(`${API_BASE_URL}/reviews/${encodeURIComponent(reviewId)}`, {
+    method: 'DELETE',
+  });
+  return response.json();
+}
+
 // Cross-doc traceability tree
 export async function getCrossDocTraceTree(
   docId: string

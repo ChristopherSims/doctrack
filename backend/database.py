@@ -239,6 +239,20 @@ def init_db():
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_comments_req ON comments(requirementId)')
     
+    # Create requirement_reviews table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS requirement_reviews (
+        id TEXT PRIMARY KEY,
+        requirementId TEXT NOT NULL,
+        reviewerName TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        comment TEXT,
+        createdAt TEXT NOT NULL,
+        FOREIGN KEY (requirementId) REFERENCES requirements(id)
+    )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_reviews_req ON requirement_reviews(requirementId)')
+    
     # Migration: add lastEditedBy column to requirements table if not exists
     cursor.execute('PRAGMA table_info(requirements)')
     req_columns2 = [col[1] for col in cursor.fetchall()]
@@ -1610,6 +1624,63 @@ def delete_comment(comment_id):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('DELETE FROM comments WHERE id = ?', (comment_id,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+# --- Requirement Reviews ---
+
+def create_review(req_id, reviewer_name, comment=None):
+    """Create a review entry for a requirement. Returns the review dict."""
+    review_id = str(uuid4())
+    now = datetime.utcnow().isoformat()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+    INSERT INTO requirement_reviews (id, requirementId, reviewerName, status, comment, createdAt)
+    VALUES (?, ?, ?, 'pending', ?, ?)
+    ''', (review_id, req_id, reviewer_name, comment, now))
+    conn.commit()
+    cursor.execute('SELECT * FROM requirement_reviews WHERE id = ?', (review_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row)
+
+def get_reviews(req_id):
+    """Get all reviews for a requirement, ordered by createdAt DESC."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT * FROM requirement_reviews WHERE requirementId = ? ORDER BY createdAt DESC',
+        (req_id,)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def update_review(review_id, status, comment=None):
+    """Update a review's status and optional comment. Returns updated review dict."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM requirement_reviews WHERE id = ?', (review_id,))
+    if not cursor.fetchone():
+        conn.close()
+        return None
+    cursor.execute('''
+    UPDATE requirement_reviews SET status = ?, comment = ? WHERE id = ?
+    ''', (status, comment, review_id))
+    conn.commit()
+    cursor.execute('SELECT * FROM requirement_reviews WHERE id = ?', (review_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row)
+
+def delete_review(review_id):
+    """Delete a review by id. Returns True if deleted."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM requirement_reviews WHERE id = ?', (review_id,))
     deleted = cursor.rowcount > 0
     conn.commit()
     conn.close()

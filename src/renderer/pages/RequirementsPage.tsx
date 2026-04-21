@@ -30,10 +30,10 @@ import {
   ArrowDownLeft,
   Upload,
   MessageSquare,
+  ShieldAlert,
   AlertTriangle,
   CheckCircle2,
 } from 'lucide-react';
-
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -250,6 +250,10 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
   const [comments, setComments] = useState<any[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [newCommentText, setNewCommentText] = useState('');
+  const [reviews, setReviews] = useState<any[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [newReviewComment, setNewReviewComment] = useState('');
+  const [reviewerName, setReviewerName] = useState('');
   const [openTraceability, setOpenTraceability] = useState(false);
   const [tracingReq, setTracingReq] = useState<Requirement | null>(null);
   const [documents, setDocuments] = useState<any[]>([]);
@@ -632,6 +636,12 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
         setComments(res.data || []);
         setCommentsLoading(false);
       }).catch(() => setCommentsLoading(false));
+      // Fetch reviews
+      setReviewsLoading(true);
+      API.getReviews(req.id).then(res => {
+        setReviews(res.data || []);
+        setReviewsLoading(false);
+      }).catch(() => setReviewsLoading(false));
     } else {
       setEditingReq(null);
       setFormData({
@@ -660,6 +670,9 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
       // Reset comments for new requirement
       setComments([]);
       setNewCommentText('');
+      // Reset reviews
+      setReviews([]);
+      setNewReviewComment('');
     }
     // Load tag suggestions
     API.getUniqueTags(documentId).then((result) => {
@@ -761,8 +774,8 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
       await loadData();
       setSnackbar({
         open: true,
-        message: `Updated ${result.updated || selectedRowIds.length} requirements to ${status}`,
-        severity: result.errors && result.errors.length > 0 ? 'error' : 'success',
+        message: `Updated ${result.data?.length || selectedRowIds.length} requirements to ${status}`,
+        severity: result.success ? 'success' : 'error',
       });
     } catch (error) {
       console.error('Bulk status update failed:', error);
@@ -779,8 +792,8 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
       await loadData();
       setSnackbar({
         open: true,
-        message: `Updated ${result.updated || selectedRowIds.length} requirements to ${priority}`,
-        severity: result.errors && result.errors.length > 0 ? 'error' : 'success',
+        message: `Updated ${result.data?.length || selectedRowIds.length} requirements to ${priority}`,
+        severity: result.success ? 'success' : 'error',
       });
     } catch (error) {
       console.error('Bulk priority update failed:', error);
@@ -803,8 +816,8 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
       await loadData();
       setSnackbar({
         open: true,
-        message: `Added tag "${trimmed}" to ${result.updated || selectedRowIds.length} requirements`,
-        severity: result.errors && result.errors.length > 0 ? 'error' : 'success',
+        message: `Added tag "${trimmed}" to ${result.data?.length || selectedRowIds.length} requirements`,
+        severity: result.success ? 'success' : 'error',
       });
     } catch (error) {
       console.error('Bulk add tag failed:', error);
@@ -1703,10 +1716,17 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
             <DialogTitle>{editingReq ? 'Edit Requirement' : 'New Requirement'}</DialogTitle>
           </DialogHeader>
           <Tabs defaultValue="basic" className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className="grid w-full grid-cols-5">
               <TabsTrigger value="basic">Basic</TabsTrigger>
               <TabsTrigger value="details">Details</TabsTrigger>
               <TabsTrigger value="relations">Relations</TabsTrigger>
+              <TabsTrigger value="reviews" className="gap-1">
+                <ShieldAlert className="size-3.5" />
+                Reviews
+                {reviews.length > 0 && (
+                  <Badge variant="secondary" className="ml-0.5 h-4 min-w-4 text-[0.6rem] px-1">{reviews.length}</Badge>
+                )}
+              </TabsTrigger>
               <TabsTrigger value="comments" className="gap-1">
                 <MessageSquare className="size-3.5" />
                 Comments
@@ -2216,6 +2236,128 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
                     {!traceInLoading && traceInDoc && traceInReqs.length === 0 && (
                       <p className="text-xs text-muted-foreground py-1">No requirements in this document.</p>
                     )}
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+
+            {/* ─── Reviews Tab ─── */}
+            <TabsContent value="reviews" className="grid gap-4 py-2">
+              <div className="space-y-3">
+                {reviewsLoading ? (
+                  <div className="flex items-center gap-2 text-muted-foreground py-4">
+                    <Loader2 className="size-4 animate-spin" />
+                    Loading reviews...
+                  </div>
+                ) : reviews.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-2">No reviews yet.</p>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {reviews.map((review) => (
+                      <div key={review.id} className="border rounded-md p-3 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-sm">{review.reviewerName}</span>
+                            <Badge
+                              className={
+                                review.status === 'approved'
+                                  ? 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900 dark:text-green-200'
+                                  : review.status === 'rejected'
+                                  ? 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900 dark:text-red-200'
+                                  : 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900 dark:text-yellow-200'
+                              }
+                            >
+                              {review.status}
+                            </Badge>
+                          </div>
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(review.createdAt).toLocaleString()}
+                          </span>
+                        </div>
+                        {review.comment && (
+                          <p className="text-sm text-muted-foreground">{review.comment}</p>
+                        )}
+                        {review.status === 'pending' && (
+                          <div className="flex items-center gap-2 pt-1">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-green-600 border-green-300 hover:bg-green-50"
+                              onClick={() => {
+                                API.updateReview(review.id, { status: 'approved', comment: review.comment }).then(res => {
+                                  if (res.success) {
+                                    setReviews(prev => prev.map(r => r.id === review.id ? res.data : r));
+                                    // Also update requirement status to approved
+                                    if (editingReq) {
+                                      API.updateRequirement(editingReq.id, { status: 'approved' }).then(() => loadData());
+                                    }
+                                  }
+                                });
+                              }}
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-red-600 border-red-300 hover:bg-red-50"
+                              onClick={() => {
+                                const reason = window.prompt('Rejection reason / comment:');
+                                if (reason === null) return;
+                                API.updateReview(review.id, { status: 'rejected', comment: reason }).then(res => {
+                                  if (res.success) {
+                                    setReviews(prev => prev.map(r => r.id === review.id ? res.data : r));
+                                    if (editingReq) {
+                                      API.updateRequirement(editingReq.id, { status: 'draft' }).then(() => loadData());
+                                    }
+                                  }
+                                });
+                              }}
+                            >
+                              Reject
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {editingReq && (
+                  <div className="border-t pt-3 space-y-2">
+                    <p className="text-sm font-medium">Submit for Review</p>
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Reviewer name"
+                        value={reviewerName}
+                        onChange={(e) => setReviewerName(e.target.value)}
+                        className="flex-1"
+                      />
+                      <Button
+                        size="sm"
+                        disabled={!reviewerName.trim()}
+                        onClick={() => {
+                          API.createReview(editingReq.id, {
+                            reviewerName: reviewerName.trim(),
+                            comment: newReviewComment.trim() || undefined,
+                          }).then(res => {
+                            if (res.success) {
+                              setReviews(prev => [res.data, ...prev]);
+                              setReviewerName('');
+                              setNewReviewComment('');
+                              // Update requirement status to review
+                              API.updateRequirement(editingReq.id, { status: 'review' }).then(() => loadData());
+                            }
+                          });
+                        }}
+                      >
+                        Submit
+                      </Button>
+                    </div>
+                    <Input
+                      placeholder="Optional comment / note"
+                      value={newReviewComment}
+                      onChange={(e) => setNewReviewComment(e.target.value)}
+                    />
                   </div>
                 )}
               </div>
