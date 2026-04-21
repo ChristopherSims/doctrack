@@ -266,8 +266,8 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
                   x2={tx}
                   y2={ty - NODE_R}
                   stroke={branchColor(toNode.branchName)}
-                  strokeWidth={2}
-                  opacity={0.5}
+                  strokeWidth={2.5}
+                  opacity={0.45}
                 />
               );
             }
@@ -282,9 +282,8 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
                 d={`M ${fx} ${fy + NODE_R} C ${fx} ${midY}, ${tx} ${midY}, ${tx} ${ty - NODE_R}`}
                 fill="none"
                 stroke={sourceColor}
-                strokeWidth={2.5}
-                strokeDasharray="8,4"
-                opacity={0.8}
+                strokeWidth={2}
+                opacity={0.6}
               />
             );
           })}
@@ -298,6 +297,7 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
             const isCurrentBranchHead = branches.some(
               b => b.name === currentBranch && b.headCommitId === node.id
             );
+            const isMerged = node.isMerge;
 
             return (
               <g key={node.id}>
@@ -308,28 +308,20 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
                     <animate attributeName="opacity" values="0.15;0.4;0.15" dur="3s" repeatCount="indefinite" />
                   </circle>
                 )}
-                {/* Node circle with soft edges */}
+                {/* Node circle: merged = filled, unmerged = hollow */}
                 <circle
                   cx={x}
                   cy={y}
                   r={NODE_R}
-                  fill={node.isRevert ? '#fef2f2' : color}
-                  stroke={node.isRevert ? '#ef4444' : color}
-                  strokeWidth={node.isMerge || node.isRevert ? 2.5 : 1.5}
+                  fill={isMerged ? color : '#ffffff'}
+                  stroke={color}
+                  strokeWidth={2}
                   filter="url(#soft-shadow)"
                   className="cursor-pointer"
                 />
-                {/* Merge icon inside node */}
-                {node.isMerge && (
-                  <text x={x} y={y + 4} textAnchor="middle" fontSize={10} fill="#fff" fontWeight="bold">M</text>
-                )}
-                {/* Revert icon inside node */}
-                {node.isRevert && !node.isMerge && (
-                  <text x={x} y={y + 4} textAnchor="middle" fontSize={10} fill="#ef4444">R</text>
-                )}
                 {/* Commit message label */}
                 <text
-                  x={x + NODE_R + 8}
+                  x={x + NODE_R + 10}
                   y={y + 4}
                   className="fill-foreground"
                   fontSize={11}
@@ -338,7 +330,7 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
                 </text>
                 {/* Author + time */}
                 <text
-                  x={x + NODE_R + 8}
+                  x={x + NODE_R + 10}
                   y={y + 16}
                   className="fill-muted-foreground"
                   fontSize={9}
