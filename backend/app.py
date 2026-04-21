@@ -8,7 +8,7 @@ from database import create_branch, get_branches, checkout_branch, merge_branche
 from database import create_tag, get_tags
 from database import create_traceability_link, get_traceability_links, delete_traceability_link
 from database import add_audit_log, get_audit_log
-from database import add_edit_history, get_edit_history, get_edit_history_for_document
+from database import add_edit_history, get_edit_history, get_edit_history_for_document, get_requirement_at_history
 from database import get_unique_tags
 from database import get_comments, create_comment, delete_comment
 from database import get_dashboard_stats
@@ -561,6 +561,17 @@ def document_history(doc_id):
     except Exception as e:
         logger.error(f"Error fetching edit history for document {doc_id}: {e}")
         return jsonify({'success': False, 'error': 'Failed to fetch document edit history'}), 500
+
+@app.route('/api/requirements/<req_id>/history/<history_id>/snapshot', methods=['GET'])
+def requirement_history_snapshot(req_id, history_id):
+    try:
+        req = get_requirement_at_history(req_id, history_id)
+        if not req:
+            return jsonify({'success': False, 'error': 'Requirement not found'}), 404
+        return jsonify({'success': True, 'data': req})
+    except Exception as e:
+        logger.error(f"Error fetching history snapshot for {req_id} at {history_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch snapshot'}), 500
 
 # --- CSV Template Export & Import ---
 

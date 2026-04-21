@@ -1504,13 +1504,13 @@ def get_edit_history(requirement_id, limit=100):
 
 def get_edit_history_for_document(document_id, limit=500):
     """Get edit history entries for all requirements in a document.
-    
+
     Joins edit_history with requirements by requirementId, filtered by documentId.
     Returns list of edit history dicts ordered by timestamp DESC, limited to `limit` results.
     """
     conn = get_connection()
     cursor = conn.cursor()
-    
+
     cursor.execute('''
         SELECT eh.* FROM edit_history eh
         INNER JOIN requirements r ON eh.requirementId = r.id
@@ -1518,10 +1518,57 @@ def get_edit_history_for_document(document_id, limit=500):
         ORDER BY eh.timestamp DESC
         LIMIT ?
     ''', (document_id, limit))
-    
+
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+
+def get_requirement_at_history(req_id, history_id):
+    """Reconstruct the requirement state as it was after a specific history entry.
+
+    Works by starting from the current requirement state and 'undoing' all edit
+    history entries that occurred after the target history entry.
+    Returns the requirement dict, or None if requirement not found.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # Get current requirement state
+    cursor.execute('SELECT * FROM requirements WHERE id = ?', (req_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return None
+
+    req = dict(row)
+
+    # Get all history entries in chronological order (oldest first)
+    cursor.execute(
+        'SELECT * FROM edit_history WHERE requirementId = ? ORDER BY timestamp ASC, id ASC',
+        (req_id,)
+    )
+    history = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+
+    if not history:
+        return req
+
+    # Find target history entry index
+    try:
+        target_index = next(i for i, h in enumerate(history) if h['id'] == history_id)
+    except StopIteration:
+        # History entry not found; return current state
+        return req
+
+    # Undo all entries that came AFTER the target (reverse chronological)
+    for entry in reversed(history[target_index + 1:]):
+        field = entry['field']
+        old_value = entry['oldValue']
+        req[field] = old_value
+
+    return req
+
 
 # --- Traceability Functions ---
 

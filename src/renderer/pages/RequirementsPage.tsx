@@ -33,6 +33,7 @@ import {
   ShieldAlert,
   AlertTriangle,
   CheckCircle2,
+  GitCompare,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -76,6 +77,7 @@ import * as API from '../../api/api';
 import RichTextEditor from '@/components/RichTextEditor';
 import TagInput from '@/components/TagInput';
 import CSVImportDialog from '@/components/CSVImportDialog';
+import RequirementVersionDiff from '@/components/RequirementVersionDiff';
 import {
   getLevelDepth,
   getParentLevels,
@@ -298,6 +300,8 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
   const [editHistory, setEditHistory] = useState<EditHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [selectedHistoryIds, setSelectedHistoryIds] = useState<string[]>([]);
+  const [diffDialogOpen, setDiffDialogOpen] = useState(false);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -402,6 +406,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
   useEffect(() => {
     if (selectedRequirement) {
       setHistoryLoading(true);
+      setSelectedHistoryIds([]);
       API.getRequirementHistory(selectedRequirement.id)
         .then((result) => {
           if (result.success) {
@@ -414,6 +419,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
         .finally(() => setHistoryLoading(false));
     } else {
       setEditHistory([]);
+      setSelectedHistoryIds([]);
     }
   }, [selectedRequirement]);
 
@@ -1620,9 +1626,25 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
                 <p className="text-sm text-muted-foreground text-center py-4">No edit history</p>
               ) : (
                 <div className="overflow-x-auto">
+                  {selectedHistoryIds.length === 2 && (
+                    <div className="flex items-center gap-2 mb-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setDiffDialogOpen(true)}
+                      >
+                        <GitCompare className="h-3.5 w-3.5 mr-1" />
+                        Compare Versions
+                      </Button>
+                      <span className="text-xs text-muted-foreground">
+                        Comparing {selectedHistoryIds.length} versions
+                      </span>
+                    </div>
+                  )}
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b text-left text-muted-foreground">
+                        <th className="pb-1.5 pr-2 w-8"></th>
                         <th className="pb-1.5 pr-3 font-medium">Field</th>
                         <th className="pb-1.5 pr-3 font-medium">Old Value</th>
                         <th className="pb-1.5 pr-3 font-medium">New Value</th>
@@ -1632,32 +1654,70 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
                       </tr>
                     </thead>
                     <tbody>
-                      {editHistory.map((entry) => (
-                        <tr key={entry.id} className="border-b last:border-0">
-                          <td className="py-1.5 pr-3 font-medium">{entry.field}</td>
-                          <td className="py-1.5 pr-3 text-muted-foreground max-w-[200px] truncate">
-                            {entry.oldValue ?? '\u2014'}
-                          </td>
-                          <td className="py-1.5 pr-3 max-w-[200px] truncate">
-                            {entry.newValue ?? '\u2014'}
-                          </td>
-                          <td className="py-1.5 pr-3">{entry.userName || entry.userId}</td>
-                          <td className="py-1.5 pr-3 font-mono text-xs">{entry.branchName || '\u2014'}</td>
-                          <td className="py-1.5 text-xs text-muted-foreground whitespace-nowrap">
-                            {entry.timestamp
-                              ? new Date(entry.timestamp).toLocaleString(undefined, {
-                                  year: 'numeric',
-                                  month: 'short',
-                                  day: 'numeric',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })
-                              : '\u2014'}
-                          </td>
-                        </tr>
-                      ))}
+                      {editHistory.map((entry) => {
+                        const isSelected = selectedHistoryIds.includes(entry.id);
+                        return (
+                          <tr
+                            key={entry.id}
+                            className={`border-b last:border-0 ${isSelected ? 'bg-primary/5' : ''}`}
+                          >
+                            <td className="py-1.5 pr-2">
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={() => {
+                                  setSelectedHistoryIds((prev) => {
+                                    if (prev.includes(entry.id)) {
+                                      return prev.filter((id) => id !== entry.id);
+                                    }
+                                    if (prev.length >= 2) {
+                                      return [...prev.slice(1), entry.id];
+                                    }
+                                    return [...prev, entry.id];
+                                  });
+                                }}
+                                aria-label={`Select history entry ${entry.id}`}
+                              />
+                            </td>
+                            <td className="py-1.5 pr-3 font-medium">{entry.field}</td>
+                            <td className="py-1.5 pr-3 text-muted-foreground max-w-[200px] truncate">
+                              {entry.oldValue ?? '\u2014'}
+                            </td>
+                            <td className="py-1.5 pr-3 max-w-[200px] truncate">
+                              {entry.newValue ?? '\u2014'}
+                            </td>
+                            <td className="py-1.5 pr-3">{entry.userName || entry.userId}</td>
+                            <td className="py-1.5 pr-3 font-mono text-xs">{entry.branchName || '\u2014'}</td>
+                            <td className="py-1.5 text-xs text-muted-foreground whitespace-nowrap">
+                              {entry.timestamp
+                                ? new Date(entry.timestamp).toLocaleString(undefined, {
+                                    year: 'numeric',
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })
+                                : '\u2014'}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
+                  <RequirementVersionDiff
+                    open={diffDialogOpen}
+                    onClose={() => setDiffDialogOpen(false)}
+                    requirementId={selectedRequirement?.id || ''}
+                    leftEntry={(() => {
+                      const entries = editHistory.filter((e) => selectedHistoryIds.includes(e.id));
+                      entries.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+                      return entries[0] || null;
+                    })()}
+                    rightEntry={(() => {
+                      const entries = editHistory.filter((e) => selectedHistoryIds.includes(e.id));
+                      entries.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+                      return entries[1] || null;
+                    })()}
+                  />
                 </div>
               )}
             </CardContent>

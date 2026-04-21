@@ -335,6 +335,16 @@ export async function getRequirementHistory(
   return response.json();
 }
 
+export async function getRequirementHistorySnapshot(
+  reqId: string,
+  historyId: string
+): Promise<ApiResponse<any>> {
+  const response = await fetch(
+    `${API_BASE_URL}/requirements/${encodeURIComponent(reqId)}/history/${encodeURIComponent(historyId)}/snapshot`
+  );
+  return response.json();
+}
+
 export async function getDocumentHistory(
   docId: string
 ): Promise<ApiResponse<any[]>> {
