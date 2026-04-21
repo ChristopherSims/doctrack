@@ -34,6 +34,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   GitCompare,
+  GitPullRequestDraft,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -43,6 +44,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -72,7 +74,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
-import type { Requirement, EditHistoryEntry, RequirementFilter } from '../../types/index';
+import type { Requirement, EditHistoryEntry, RequirementFilter, ChangeProposal } from '../../types/index';
 import * as API from '../../api/api';
 import RichTextEditor from '@/components/RichTextEditor';
 import TagInput from '@/components/TagInput';
@@ -144,6 +146,7 @@ function EditableCell({
   type = 'text',
   options,
   displayRenderer,
+  disabled = false,
 }: {
   value: string;
   rowId: string;
@@ -152,6 +155,7 @@ function EditableCell({
   type?: 'text' | 'select';
   options?: readonly string[];
   displayRenderer?: (value: string) => React.ReactNode;
+  disabled?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -177,11 +181,13 @@ function EditableCell({
   if (!editing) {
     return (
       <div
-        className="w-full h-full px-1 py-0.5 cursor-text min-h-[24px] flex items-center"
-        onDoubleClick={() => setEditing(true)}
-        title="Double-click to edit"
+        className={`w-full h-full px-1 py-0.5 min-h-[24px] flex items-center ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-text'}`}
+        onDoubleClick={() => {
+          if (!disabled) setEditing(true);
+        }}
+        title={disabled ? 'Editing disabled: select a Change Proposal' : 'Double-click to edit'}
       >
-        {displayRenderer ? displayRenderer(value) : <span className="truncate text-sm">{value || '\u2014'}</span>}
+        {displayRenderer ? displayRenderer(value) : <span className="truncate text-sm">{value || '—'}</span>}
       </div>
     );
   }
@@ -294,6 +300,16 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
   const [lintOpen, setLintOpen] = useState(false);
   const [lintResults, setLintResults] = useState<any[]>([]);
   const [lintLoading, setLintLoading] = useState(false);
+
+  // Change Proposal state
+  const [changeProposals, setChangeProposals] = useState<ChangeProposal[]>([]);
+  const [activeChangeProposal, setActiveChangeProposal] = useState<ChangeProposal | null>(null);
+  const [cpGateOpen, setCpGateOpen] = useState(false);
+  const [cpGateAction, setCpGateAction] = useState<'add' | 'edit' | null>(null);
+  const [cpGateReq, setCpGateReq] = useState<Requirement | null>(null);
+  const [newCpDialogOpen, setNewCpDialogOpen] = useState(false);
+  const [newCpForm, setNewCpForm] = useState({ title: '', description: '' });
+  const [creatingCp, setCreatingCp] = useState(false);
 
   // Edit history state
   const [selectedRequirement, setSelectedRequirement] = useState<Requirement | null>(null);
@@ -491,6 +507,11 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
       if (allDocs.success) {
         setDocuments((allDocs.data || []).filter((d: any) => d.id !== documentId));
       }
+
+      const cpResult = await API.getChangeProposals(documentId);
+      if (cpResult.success) {
+        setChangeProposals(cpResult.data || []);
+      }
     } catch (error) {
       console.error('Failed to load data:', error);
     } finally {
@@ -521,6 +542,10 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
 
   // Inline edit commit handler — updates the local requirements array
   const handleCellCommit = useCallback((rowId: string, field: keyof Requirement, value: string) => {
+    if (!activeChangeProposal) {
+      setCpGateOpen(true);
+      return;
+    }
     setRequirements(prev => {
       const next = prev.map(r => {
         if (r.id === rowId) {
@@ -536,7 +561,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
       return next;
     });
     setHasChanges(true);
-  }, []);
+  }, [activeChangeProposal]);
 
   const handleSaveAllChanges = async () => {
     try {
@@ -566,7 +591,9 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
       }
 
       if (updates.length > 0) {
-        const result = await API.batchUpdateRequirements(updates);
+        const result = await API.batchUpdateRequirements(
+          updates.map((u) => ({ ...u, changeProposalId: activeChangeProposal?.id }))
+        );
         if (result.success) {
           setDirtyRows(new Set());
           setHasChanges(false);
@@ -583,6 +610,12 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
   };
 
   const handleOpenDialog = (req?: Requirement) => {
+    if (!activeChangeProposal) {
+      setCpGateAction(req ? 'edit' : 'add');
+      setCpGateReq(req || null);
+      setCpGateOpen(true);
+      return;
+    }
     if (req) {
       setEditingReq(req);
       // Parse tags defensively
@@ -701,6 +734,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
         tags: formData.tags,
         custom_fields: formData.customFields,
         related_requirements: formData.relatedRequirements,
+        changeProposalId: activeChangeProposal?.id,
       };
       // Remove camelCase versions (backend expects snake_case for JSON fields)
       delete (payload as any).customFields;
@@ -958,6 +992,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
               onCommit={handleCellCommit}
               type="select"
               options={levelOptions}
+              disabled={!activeChangeProposal}
             />
           </div>
         );
@@ -982,6 +1017,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
           rowId={row.original.id}
           field="title"
           onCommit={handleCellCommit}
+          disabled={!activeChangeProposal}
         />
       ),
     },
@@ -997,6 +1033,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
             rowId={row.original.id}
             field="description"
             onCommit={handleCellCommit}
+            disabled={!activeChangeProposal}
             displayRenderer={(v) => {
               const val = v || '';
               const isHtml = /<[a-z][\s\S]*>/i.test(val);
@@ -1026,6 +1063,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
           onCommit={handleCellCommit}
           type="select"
           options={STATUS_OPTIONS}
+          disabled={!activeChangeProposal}
           displayRenderer={(v) => (
             <Badge variant={statusVariantMap[v] || 'secondary'} className={statusColorMap[v] || ''}>
               {v || 'draft'}
@@ -1049,6 +1087,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
             onCommit={handleCellCommit}
             type="select"
             options={PRIORITY_OPTIONS}
+            disabled={!activeChangeProposal}
             displayRenderer={(v) => (
               <Badge variant={priorityVariantMap[v] || 'secondary'} className={priorityColorMap[v] || ''}>
                 {v || 'medium'}
@@ -1069,6 +1108,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
           rowId={row.original.id}
           field="changeRequestId"
           onCommit={handleCellCommit}
+          disabled={!activeChangeProposal}
           displayRenderer={(v) => <span className="text-xs">{v || '\u2014'}</span>}
         />
       ),
@@ -1103,6 +1143,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
           rowId={row.original.id}
           field="testPlan"
           onCommit={handleCellCommit}
+          disabled={!activeChangeProposal}
           displayRenderer={(v) => (
             <span className="truncate text-xs">{v || '\u2014'}</span>
           )}
@@ -1141,6 +1182,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
           onCommit={handleCellCommit}
           type="select"
           options={VERIFICATION_OPTIONS}
+          disabled={!activeChangeProposal}
           displayRenderer={(v) => (
             <span className="text-xs">{v ? v.replace(/_/g, ' ') : '\u2014'}</span>
           )}
@@ -1157,6 +1199,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
           rowId={row.original.id}
           field="rationale"
           onCommit={handleCellCommit}
+          disabled={!activeChangeProposal}
           displayRenderer={(v) => (
             <span className="truncate text-xs">{v || '\u2014'}</span>
           )}
@@ -1284,6 +1327,33 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
             </div>
           )}
         </div>
+      </div>
+
+      {/* ─── Change Proposal Banner ─── */}
+      <div className={`flex items-center gap-3 px-4 py-2 border-b flex-shrink-0 ${activeChangeProposal ? 'bg-blue-500/5 border-blue-500/20' : 'bg-amber-500/5 border-amber-500/20'}`}>
+        {activeChangeProposal ? (
+          <>
+            <GitPullRequestDraft className="size-4 text-blue-500" />
+            <div className="flex-1 text-sm">
+              <span className="text-muted-foreground">Active Change Proposal:</span>{' '}
+              <span className="font-medium">{activeChangeProposal.title}</span>
+              <Badge variant="outline" className="ml-2 text-xs capitalize">{activeChangeProposal.status}</Badge>
+            </div>
+            <Button variant="ghost" size="xs" onClick={() => setActiveChangeProposal(null)}>
+              Clear
+            </Button>
+          </>
+        ) : (
+          <>
+            <AlertTriangle className="size-4 text-amber-500" />
+            <div className="flex-1 text-sm text-amber-700 dark:text-amber-400">
+              No active Change Proposal. Editing is disabled. Select or create one to make changes.
+            </div>
+            <Button variant="outline" size="xs" onClick={() => setCpGateOpen(true)}>
+              Select Change Proposal
+            </Button>
+          </>
+        )}
       </div>
 
       {/* ─── Toolbar ─── */}
@@ -2608,6 +2678,142 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
           </div>
         </div>
       )}
+
+      {/* ─── Change Proposal Gate Dialog ─── */}
+      <Dialog open={cpGateOpen} onOpenChange={setCpGateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GitPullRequestDraft className="size-5 text-primary" />
+              Select Change Proposal
+            </DialogTitle>
+            <DialogDescription>
+              {cpGateAction === 'add'
+                ? 'You must select an active Change Proposal before adding a new requirement.'
+                : 'You must select an active Change Proposal before editing requirements.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3 mt-1">
+            {changeProposals.filter((cp) => cp.status === 'draft' || cp.status === 'proposed' || cp.status === 'approved').length === 0 ? (
+              <div className="text-sm text-muted-foreground text-center py-4">
+                No active change proposals found. Create one to start editing.
+              </div>
+            ) : (
+              <div className="space-y-1 max-h-60 overflow-y-auto">
+                {changeProposals
+                  .filter((cp) => cp.status === 'draft' || cp.status === 'proposed' || cp.status === 'approved')
+                  .map((cp) => (
+                    <button
+                      key={cp.id}
+                      className="w-full text-left px-3 py-2 rounded-md border hover:bg-accent text-sm flex items-center gap-2"
+                      onClick={() => {
+                        setActiveChangeProposal(cp);
+                        setCpGateOpen(false);
+                        if (cpGateAction === 'add') {
+                          handleOpenDialog();
+                        } else if (cpGateAction === 'edit' && cpGateReq) {
+                          handleOpenDialog(cpGateReq);
+                        }
+                        setCpGateAction(null);
+                        setCpGateReq(null);
+                      }}
+                    >
+                      <GitPullRequestDraft className="size-4 text-muted-foreground" />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate">{cp.title}</div>
+                        <div className="text-xs text-muted-foreground">{cp.status} · {cp.createdBy}</div>
+                      </div>
+                    </button>
+                  ))}
+              </div>
+            )}
+            <Button variant="outline" size="sm" className="w-full" onClick={() => setNewCpDialogOpen(true)}>
+              <Plus className="size-4 mr-1" />
+              Create New Change Proposal
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setCpGateOpen(false)}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── New Change Proposal Dialog ─── */}
+      <Dialog open={newCpDialogOpen} onOpenChange={setNewCpDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="size-5 text-primary" />
+              New Change Proposal
+            </DialogTitle>
+            <DialogDescription>Create a change proposal to track your edits.</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 mt-1">
+            <div className="flex flex-col gap-1.5">
+              <Label>Title *</Label>
+              <Input
+                placeholder="e.g., Update safety requirements"
+                value={newCpForm.title}
+                onChange={(e) => setNewCpForm((prev) => ({ ...prev, title: e.target.value }))}
+                autoFocus
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Description</Label>
+              <Textarea
+                placeholder="Brief description of changes"
+                value={newCpForm.description}
+                onChange={(e) => setNewCpForm((prev) => ({ ...prev, description: e.target.value }))}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNewCpDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!newCpForm.title.trim()) return;
+                setCreatingCp(true);
+                try {
+                  const res = await API.createChangeProposal(documentId, {
+                    title: newCpForm.title,
+                    description: newCpForm.description,
+                  });
+                  if (res.success && res.data) {
+                    setChangeProposals((prev) => [res.data, ...prev]);
+                    setActiveChangeProposal(res.data);
+                    setNewCpDialogOpen(false);
+                    setNewCpForm({ title: '', description: '' });
+                    setCpGateOpen(false);
+                    if (cpGateAction === 'add') {
+                      handleOpenDialog();
+                    } else if (cpGateAction === 'edit' && cpGateReq) {
+                      handleOpenDialog(cpGateReq);
+                    }
+                    setCpGateAction(null);
+                    setCpGateReq(null);
+                    setSnackbar({ open: true, message: 'Change proposal created and activated', severity: 'success' });
+                  } else {
+                    setSnackbar({ open: true, message: res.error || 'Failed to create', severity: 'error' });
+                  }
+                } catch (e) {
+                  setSnackbar({ open: true, message: 'Failed to create change proposal', severity: 'error' });
+                } finally {
+                  setCreatingCp(false);
+                }
+              }}
+              disabled={!newCpForm.title.trim() || creatingCp}
+            >
+              {creatingCp ? <Loader2 className="size-4 animate-spin mr-1" /> : <Plus className="size-4 mr-1" />}
+              {creatingCp ? 'Creating...' : 'Create & Activate'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

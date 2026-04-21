@@ -200,3 +200,16 @@ export interface Comment {
   text: string;
   createdAt: string;
 }
+
+export interface ChangeProposal {
+  id: string;
+  documentId: string;
+  title: string;
+  description: string;
+  status: 'draft' | 'proposed' | 'approved' | 'rejected' | 'implemented';
+  createdAt: string;
+  createdBy: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  implementedAt?: string;
+}

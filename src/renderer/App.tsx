@@ -11,10 +11,11 @@ import DiffViewPage from './pages/DiffViewPage';
 import TraceabilityPage from './pages/TraceabilityPage';
 import AuditLogPage from './pages/AuditLogPage';
 import DashboardPage from './pages/DashboardPage';
+import ChangeProposalsPage from './pages/ChangeProposalsPage';
 import CommandPalette from './components/CommandPalette';
 import type { RequirementFilter } from '../types/index';
 
-export type Page = 'dashboard' | 'documents' | 'requirements' | 'history' | 'branches' | 'export' | 'settings' | 'diff' | 'traceability' | 'audit';
+export type Page = 'dashboard' | 'documents' | 'requirements' | 'history' | 'branches' | 'export' | 'settings' | 'diff' | 'traceability' | 'audit' | 'change-proposals';
 
 const EMPTY_FILTER: RequirementFilter = {
   title: '',
@@ -183,6 +184,14 @@ const App: React.FC = () => {
         ) : null;
       case 'audit':
         return <AuditLogPage documentId={state.selectedDocumentId ?? undefined} />;
+      case 'change-proposals':
+        return state.selectedDocumentId ? (
+          <ChangeProposalsPage
+            documentId={state.selectedDocumentId}
+            documentTitle={state.selectedDocumentTitle}
+            onBack={() => handleNavigate('requirements')}
+          />
+        ) : null;
       default:
         return null;
     }

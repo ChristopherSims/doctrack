@@ -269,11 +269,36 @@ def init_db():
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_baselines_doc ON baselines(documentId)')
     
+    # Create change_proposals table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS change_proposals (
+        id TEXT PRIMARY KEY,
+        documentId TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        status TEXT DEFAULT 'draft',
+        createdAt TEXT NOT NULL,
+        createdBy TEXT NOT NULL,
+        approvedBy TEXT,
+        approvedAt TEXT,
+        implementedAt TEXT,
+        FOREIGN KEY (documentId) REFERENCES documents(id)
+    )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_cp_doc ON change_proposals(documentId)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_cp_status ON change_proposals(status)')
+    
     # Migration: add lastEditedBy column to requirements table if not exists
     cursor.execute('PRAGMA table_info(requirements)')
     req_columns2 = [col[1] for col in cursor.fetchall()]
     if 'lastEditedBy' not in req_columns2:
         cursor.execute('ALTER TABLE requirements ADD COLUMN lastEditedBy TEXT')
+    
+    # Migration: add changeProposalId column to edit_history if not exists
+    cursor.execute('PRAGMA table_info(edit_history)')
+    hist_columns = [col[1] for col in cursor.fetchall()]
+    if 'changeProposalId' not in hist_columns:
+        cursor.execute('ALTER TABLE edit_history ADD COLUMN changeProposalId TEXT')
     
     # Create default 'main' branch for each document that doesn't have one
     cursor.execute('''
@@ -611,6 +636,7 @@ def update_requirement_db(req_id, data):
     # lastEditedBy
     user_id = data.get('userId', data.get('lastEditedBy', 'system'))
     user_name = data.get('userName', data.get('lastEditedBy', 'system'))
+    change_proposal_id = data.get('changeProposalId')
     if 'lastEditedBy' in data:
         updates.append('lastEditedBy = ?')
         params.append(data['lastEditedBy'])
@@ -648,7 +674,7 @@ def update_requirement_db(req_id, data):
                     new_val = data[field]
                 
                 if str(old_val) != str(new_val):
-                    add_edit_history(req_id, user_id, user_name, field, old_val, new_val, branch_name)
+                    add_edit_history(req_id, user_id, user_name, field, old_val, new_val, branch_name, change_proposal_id)
     
     # Fetch and return the updated requirement
     cursor.execute('SELECT * FROM requirements WHERE id = ?', (req_id,))
@@ -716,6 +742,7 @@ def batch_update_requirements(updates_list):
             # lastEditedBy
             user_id = item.get('userId', item.get('lastEditedBy', 'system'))
             user_name = item.get('userName', item.get('lastEditedBy', 'system'))
+            change_proposal_id = item.get('changeProposalId')
             if 'lastEditedBy' in item:
                 set_clauses.append('lastEditedBy = ?')
                 params.append(item['lastEditedBy'])
@@ -761,7 +788,8 @@ def batch_update_requirements(updates_list):
                                 'field': field,
                                 'old_value': old_val,
                                 'new_value': new_val,
-                                'branch_name': branch_name
+                                'branch_name': branch_name,
+                                'change_proposal_id': change_proposal_id
                             })
             except Exception as e:
                 errors.append({'id': req_id, 'error': str(e)})
@@ -778,7 +806,8 @@ def batch_update_requirements(updates_list):
                     entry['field'],
                     entry['old_value'],
                     entry['new_value'],
-                    entry['branch_name']
+                    entry['branch_name'],
+                    entry['change_proposal_id']
                 )
     except Exception as e:
         conn.rollback()
@@ -1459,7 +1488,7 @@ def get_audit_log(resource_id=None, limit=100):
 
 # --- Edit History Functions ---
 
-def add_edit_history(requirement_id, user_id, user_name, field, old_value, new_value, branch_name=None):
+def add_edit_history(requirement_id, user_id, user_name, field, old_value, new_value, branch_name=None, change_proposal_id=None):
     """Add an edit history entry for a requirement field change.
     
     Returns the edit history entry dict.
@@ -1471,12 +1500,12 @@ def add_edit_history(requirement_id, user_id, user_name, field, old_value, new_v
     cursor = conn.cursor()
     
     cursor.execute('''
-    INSERT INTO edit_history (id, requirementId, userId, userName, timestamp, field, oldValue, newValue, branchName)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO edit_history (id, requirementId, userId, userName, timestamp, field, oldValue, newValue, branchName, changeProposalId)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (entry_id, requirement_id, user_id, user_name, now, field, 
           str(old_value) if old_value is not None else None,
           str(new_value) if new_value is not None else None,
-          branch_name))
+          branch_name, change_proposal_id))
     
     conn.commit()
     
@@ -1987,3 +2016,97 @@ def get_dashboard_stats():
         'recentActivity': recent_activity,
         'topTags': top_tags,
     }
+
+# --- Change Proposal Functions ---
+
+def get_change_proposals(document_id):
+    """Get all change proposals for a document, ordered by createdAt DESC."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT * FROM change_proposals WHERE documentId = ? ORDER BY createdAt DESC',
+        (document_id,)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def get_change_proposal(cp_id):
+    """Get a single change proposal by id."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM change_proposals WHERE id = ?', (cp_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def create_change_proposal(data):
+    """Create a new change proposal."""
+    cp_id = str(uuid4())
+    now = datetime.utcnow().isoformat()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+    INSERT INTO change_proposals (id, documentId, title, description, status, createdAt, createdBy)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        cp_id,
+        data.get('documentId'),
+        data.get('title'),
+        data.get('description', ''),
+        data.get('status', 'draft'),
+        now,
+        data.get('createdBy', 'system')
+    ))
+    conn.commit()
+    cursor.execute('SELECT * FROM change_proposals WHERE id = ?', (cp_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row)
+
+def update_change_proposal(cp_id, data):
+    """Update a change proposal (status, title, description, approvedBy, approvedAt, implementedAt)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM change_proposals WHERE id = ?', (cp_id,))
+    if not cursor.fetchone():
+        conn.close()
+        return None
+    updates = []
+    params = []
+    for field in ['title', 'description', 'status', 'approvedBy', 'approvedAt', 'implementedAt']:
+        if field in data:
+            updates.append(f"{field} = ?")
+            params.append(data[field])
+    if updates:
+        params.append(cp_id)
+        query = f"UPDATE change_proposals SET {', '.join(updates)} WHERE id = ?"
+        cursor.execute(query, params)
+        conn.commit()
+    cursor.execute('SELECT * FROM change_proposals WHERE id = ?', (cp_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row)
+
+def delete_change_proposal(cp_id):
+    """Delete a change proposal."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM change_proposals WHERE id = ?', (cp_id,))
+    conn.commit()
+    conn.close()
+
+def get_change_proposal_history(cp_id):
+    """Get all edit history entries associated with a change proposal."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT eh.*, r.title as requirementTitle, r.level as requirementLevel
+        FROM edit_history eh
+        INNER JOIN requirements r ON eh.requirementId = r.id
+        WHERE eh.changeProposalId = ?
+        ORDER BY eh.timestamp DESC
+    ''', (cp_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]

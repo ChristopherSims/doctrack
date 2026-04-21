@@ -28,6 +28,7 @@ import {
   Loader2,
   GitCommitHorizontal,
   LayoutDashboard,
+  GitPullRequestDraft,
 } from 'lucide-react';
 import type { Page } from '../App';
 import type { RequirementFilter } from '../../types/index';
@@ -183,6 +184,7 @@ const Navigation: React.FC<NavigationProps> = ({
     { label: 'Export', icon: Download, page: 'export' as Page },
     { label: 'Diff View', icon: GitCompareArrows, page: 'diff' as Page },
     { label: 'Traceability', icon: Network, page: 'traceability' as Page },
+    { label: 'Change Proposals', icon: GitPullRequestDraft, page: 'change-proposals' as Page },
   ] : [];
 
   const globalMenuItems = [

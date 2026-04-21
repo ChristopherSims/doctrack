@@ -476,3 +476,44 @@ export async function getCrossDocTraceTree(
   }
   return json;
 }
+
+// Change Proposal API
+export async function getChangeProposals(docId: string): Promise<ApiResponse<any[]>> {
+  const response = await fetch(`${API_BASE_URL}/documents/${encodeURIComponent(docId)}/change-proposals`);
+  return response.json();
+}
+
+export async function createChangeProposal(docId: string, data: { title: string; description?: string; createdBy?: string }): Promise<ApiResponse<any>> {
+  const response = await fetch(`${API_BASE_URL}/documents/${encodeURIComponent(docId)}/change-proposals`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return response.json();
+}
+
+export async function getChangeProposal(cpId: string): Promise<ApiResponse<any>> {
+  const response = await fetch(`${API_BASE_URL}/change-proposals/${encodeURIComponent(cpId)}`);
+  return response.json();
+}
+
+export async function updateChangeProposal(cpId: string, data: Partial<any>): Promise<ApiResponse<any>> {
+  const response = await fetch(`${API_BASE_URL}/change-proposals/${encodeURIComponent(cpId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return response.json();
+}
+
+export async function deleteChangeProposal(cpId: string): Promise<ApiResponse<any>> {
+  const response = await fetch(`${API_BASE_URL}/change-proposals/${encodeURIComponent(cpId)}`, {
+    method: 'DELETE',
+  });
+  return response.json();
+}
+
+export async function getChangeProposalHistory(cpId: string): Promise<ApiResponse<any[]>> {
+  const response = await fetch(`${API_BASE_URL}/change-proposals/${encodeURIComponent(cpId)}/history`);
+  return response.json();
+}

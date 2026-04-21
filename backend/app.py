@@ -15,6 +15,7 @@ from database import get_dashboard_stats
 from database import lint_requirements
 from database import create_review, get_reviews, update_review, delete_review
 from database import create_baseline, get_baselines, get_baseline, delete_baseline
+from database import get_change_proposals, create_change_proposal, get_change_proposal, update_change_proposal, delete_change_proposal, get_change_proposal_history
 from export import export_csv, export_word, export_pdf
 import os
 import csv
@@ -862,6 +863,82 @@ def delete_doc_baseline(baseline_id):
     except Exception as e:
         logger.error(f"Error deleting baseline {baseline_id}: {e}")
         return jsonify({'success': False, 'error': 'Failed to delete baseline'}), 500
+
+# --- Change Proposals ---
+
+@app.route('/api/documents/<doc_id>/change-proposals', methods=['GET'])
+def get_doc_change_proposals(doc_id):
+    try:
+        document = get_document_db(doc_id)
+        if not document:
+            return jsonify({'success': False, 'error': 'Document not found'}), 404
+        cps = get_change_proposals(doc_id)
+        return jsonify({'success': True, 'data': cps})
+    except Exception as e:
+        logger.error(f"Error fetching change proposals for document {doc_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch change proposals'}), 500
+
+@app.route('/api/documents/<doc_id>/change-proposals', methods=['POST'])
+def create_doc_change_proposal(doc_id):
+    try:
+        data, err = validate_json(required_fields=['title'])
+        if err:
+            return err
+        document = get_document_db(doc_id)
+        if not document:
+            return jsonify({'success': False, 'error': 'Document not found'}), 404
+        data['documentId'] = doc_id
+        cp = create_change_proposal(data)
+        return jsonify({'success': True, 'data': cp}), 201
+    except Exception as e:
+        logger.error(f"Error creating change proposal for document {doc_id}: {e}")
+        return jsonify({'success': False, 'error': f'Failed to create change proposal: {str(e)}'}), 400
+
+@app.route('/api/change-proposals/<cp_id>', methods=['GET'])
+def get_change_proposal_route(cp_id):
+    try:
+        cp = get_change_proposal(cp_id)
+        if not cp:
+            return jsonify({'success': False, 'error': 'Change proposal not found'}), 404
+        return jsonify({'success': True, 'data': cp})
+    except Exception as e:
+        logger.error(f"Error fetching change proposal {cp_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch change proposal'}), 500
+
+@app.route('/api/change-proposals/<cp_id>', methods=['PUT'])
+def update_change_proposal_route(cp_id):
+    try:
+        data, err = validate_json()
+        if err:
+            return err
+        cp = update_change_proposal(cp_id, data)
+        if not cp:
+            return jsonify({'success': False, 'error': 'Change proposal not found'}), 404
+        return jsonify({'success': True, 'data': cp})
+    except Exception as e:
+        logger.error(f"Error updating change proposal {cp_id}: {e}")
+        return jsonify({'success': False, 'error': f'Failed to update change proposal: {str(e)}'}), 400
+
+@app.route('/api/change-proposals/<cp_id>', methods=['DELETE'])
+def delete_change_proposal_route(cp_id):
+    try:
+        delete_change_proposal(cp_id)
+        return jsonify({'success': True, 'data': None})
+    except Exception as e:
+        logger.error(f"Error deleting change proposal {cp_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to delete change proposal'}), 500
+
+@app.route('/api/change-proposals/<cp_id>/history', methods=['GET'])
+def get_cp_history_route(cp_id):
+    try:
+        cp = get_change_proposal(cp_id)
+        if not cp:
+            return jsonify({'success': False, 'error': 'Change proposal not found'}), 404
+        history = get_change_proposal_history(cp_id)
+        return jsonify({'success': True, 'data': history})
+    except Exception as e:
+        logger.error(f"Error fetching history for change proposal {cp_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch change proposal history'}), 500
 
 # --- Health check ---
 
