@@ -64,6 +64,7 @@ interface FlowNode {
   parentCommitId: string | null;
   isMerge: boolean;
   isRevert?: boolean;
+  isUncommitted?: boolean;
   mergeSourceBranch?: string | null;
 }
 
@@ -294,10 +295,10 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
             const x = nodeX(node.id);
             const y = nodeY(node.id);
             const color = branchColor(node.branchName);
+            const isUncommitted = node.isUncommitted;
             const isCurrentBranchHead = branches.some(
               b => b.name === currentBranch && b.headCommitId === node.id
             );
-            const isMerged = node.isMerge;
 
             return (
               <g key={node.id}>
@@ -308,12 +309,12 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
                     <animate attributeName="opacity" values="0.15;0.4;0.15" dur="3s" repeatCount="indefinite" />
                   </circle>
                 )}
-                {/* Node circle: merged = filled, unmerged = hollow */}
+                {/* Node circle: uncommitted = hollow (transparent), committed = filled */}
                 <circle
                   cx={x}
                   cy={y}
                   r={NODE_R}
-                  fill={isMerged ? color : '#ffffff'}
+                  fill={isUncommitted ? 'none' : color}
                   stroke={color}
                   strokeWidth={2}
                   filter="url(#soft-shadow)"
@@ -329,16 +330,18 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
                   {node.message.length > 40 ? node.message.slice(0, 40) + '...' : node.message}
                 </text>
                 {/* Author + time */}
-                <text
-                  x={x + NODE_R + 10}
-                  y={y + 16}
-                  className="fill-muted-foreground"
-                  fontSize={9}
-                >
-                  {node.author} · {new Date(node.createdAt).toLocaleDateString()}
-                </text>
+                {!isUncommitted && (
+                  <text
+                    x={x + NODE_R + 10}
+                    y={y + 16}
+                    className="fill-muted-foreground"
+                    fontSize={9}
+                  >
+                    {node.author} · {new Date(node.createdAt).toLocaleDateString()}
+                  </text>
+                )}
                 {/* Revert button */}
-                {onRevert && (
+                {onRevert && !isUncommitted && (
                   <g
                     className="opacity-0 hover:opacity-100 cursor-pointer"
                     onClick={() => onRevert(node.id, node.branchName)}

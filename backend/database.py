@@ -1396,6 +1396,51 @@ def get_commit_graph(document_id):
     
     branches = [dict(b) for b in branch_rows]
     
+    # --- Detect uncommitted changes on the current branch ---
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT currentBranch FROM documents WHERE id = ?', (document_id,))
+    doc_row = cursor.fetchone()
+    current_branch_name = doc_row['currentBranch'] if doc_row else 'main'
+    
+    current_branch = branch_map.get(current_branch_name)
+    if current_branch:
+        head_commit_id = current_branch.get('headCommitId')
+        if head_commit_id and head_commit_id in commit_map:
+            head_commit = commit_map[head_commit_id]
+            try:
+                snapshot_reqs = json.loads(head_commit.get('snapshot', '[]'))
+            except Exception:
+                snapshot_reqs = []
+            current_reqs = get_all_requirements(document_id)
+            
+            # Normalize for comparison (strip irrelevant fields)
+            def normalize(reqs):
+                keys = ('id', 'title', 'description', 'status', 'priority', 'level', 'sequenceNumber', 'rationale', 'verificationMethod')
+                return sorted([
+                    tuple(str(req.get(k, '')) for k in keys)
+                    for req in reqs
+                ])
+            
+            if normalize(snapshot_reqs) != normalize(current_reqs):
+                uncommitted_id = 'uncommitted'
+                uncommitted_node = {
+                    'id': uncommitted_id,
+                    'documentId': document_id,
+                    'branchName': current_branch_name,
+                    'message': 'Uncommitted changes',
+                    'author': '',
+                    'createdAt': datetime.datetime.now().isoformat(),
+                    'parentCommitId': head_commit_id,
+                    'isMerge': False,
+                    'isRevert': False,
+                    'mergeSourceBranch': None,
+                    'isUncommitted': True,
+                }
+                nodes.append(uncommitted_node)
+                edges.append({'from': head_commit_id, 'to': uncommitted_id, 'type': 'parent'})
+    conn.close()
+    
     return {'nodes': nodes, 'branches': branches, 'edges': edges}
 
 def create_tag(document_id, name, commit_id, message, created_by):
