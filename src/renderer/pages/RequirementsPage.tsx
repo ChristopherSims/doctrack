@@ -2133,6 +2133,12 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
               {/* Traceability Links (incoming/outgoing) */}
               <div className="space-y-3">
                 <Label className="mb-1.5">Traceability Links</Label>
+                {!activeChangeProposal && (
+                  <div className="rounded-md border border-amber-500/20 bg-amber-500/5 p-3 flex items-center gap-2 text-sm text-amber-700 dark:text-amber-400">
+                    <AlertTriangle className="size-4 flex-shrink-0" />
+                    <span>Link management is disabled without an active Change Proposal.</span>
+                  </div>
+                )}
                 {traceLinksLoading && (
                   <div className="flex items-center gap-2 py-2">
                     <Loader2 className="size-3.5 animate-spin" />
@@ -2164,9 +2170,11 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
                                 )}
                                 <button
                                   type="button"
-                                  className="ml-1 rounded-full hover:bg-destructive/10 p-0.5 flex-shrink-0"
-                                  title="Remove link"
+                                  className={`ml-1 rounded-full p-0.5 flex-shrink-0 ${activeChangeProposal ? 'hover:bg-destructive/10 cursor-pointer' : 'opacity-40 cursor-not-allowed'}`}
+                                  title={activeChangeProposal ? 'Remove link' : 'Select a Change Proposal to remove links'}
+                                  disabled={!activeChangeProposal}
                                   onClick={async () => {
+                                    if (!activeChangeProposal) return;
                                     const result = await API.deleteTraceabilityLink(link.id);
                                     if (result.success && editingReq) {
                                       loadTraceLinks(editingReq.id);
@@ -2200,9 +2208,11 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
                                 )}
                                 <button
                                   type="button"
-                                  className="ml-1 rounded-full hover:bg-destructive/10 p-0.5 flex-shrink-0"
-                                  title="Remove link"
+                                  className={`ml-1 rounded-full p-0.5 flex-shrink-0 ${activeChangeProposal ? 'hover:bg-destructive/10 cursor-pointer' : 'opacity-40 cursor-not-allowed'}`}
+                                  title={activeChangeProposal ? 'Remove link' : 'Select a Change Proposal to remove links'}
+                                  disabled={!activeChangeProposal}
                                   onClick={async () => {
+                                    if (!activeChangeProposal) return;
                                     const result = await API.deleteTraceabilityLink(link.id);
                                     if (result.success && editingReq) {
                                       loadTraceLinks(editingReq.id);
@@ -2220,7 +2230,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
                 )}
 
                 {/* Add new outgoing link */}
-                {editingReq && (
+                {editingReq && activeChangeProposal && (
                   <div className="border-t pt-3 mt-2 space-y-2">
                     <div className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                       <ArrowUpRight className="size-3.5" />
@@ -2297,7 +2307,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
                 )}
 
                 {/* Add incoming link */}
-                {editingReq && (
+                {editingReq && activeChangeProposal && (
                   <div className="border-t pt-3 mt-2 space-y-2">
                     <div className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                       <ArrowDownLeft className="size-3.5" />

@@ -39,11 +39,13 @@ import {
   ChevronDown,
   Search,
   GitBranch,
+  AlertTriangle,
+  GitPullRequestDraft,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import TraceabilityTree from '@/components/TraceabilityTree';
 import TraceabilityGraph from '@/components/TraceabilityGraph';
-import type { Requirement, TraceabilityLink, Document, RequirementFilter } from '../../types/index';
+import type { Requirement, TraceabilityLink, Document, RequirementFilter, ChangeProposal } from '../../types/index';
 import * as API from '../../api/api';
 
 interface TraceabilityPageProps {
@@ -195,6 +197,10 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
     severity: 'success' | 'error' | 'info';
   }>({ open: false, message: '', severity: 'info' });
 
+  // Change Proposal state
+  const [changeProposals, setChangeProposals] = useState<ChangeProposal[]>([]);
+  const [activeChangeProposal, setActiveChangeProposal] = useState<ChangeProposal | null>(null);
+
   // Cross-doc tree view data
   const [crossDocTreeData, setCrossDocTreeData] = useState<any[]>([]);
   const [crossDocTreeLoading, setCrossDocTreeLoading] = useState(false);
@@ -331,9 +337,10 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
   const loadData = async () => {
     setLoading(true);
     try {
-      const [reqResult, docsResult] = await Promise.all([
+      const [reqResult, docsResult, cpResult] = await Promise.all([
         API.getRequirements(documentId),
         API.getDocuments(),
+        API.getChangeProposals(documentId),
       ]);
 
       if (reqResult.success) {
@@ -346,6 +353,10 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
         setDocuments(
           (docsResult.data || []).filter((d: Document) => d.id !== documentId)
         );
+      }
+
+      if (cpResult.success) {
+        setChangeProposals(cpResult.data || []);
       }
     } catch (error) {
       console.error('Failed to load data:', error);
@@ -704,16 +715,18 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
                 variant="ghost"
                 size="icon-xs"
                 className="shrink-0 opacity-0 group-hover:opacity-100 hover:opacity-100"
-                style={{ opacity: undefined }}  // always visible for now
+                style={{ opacity: undefined }}
+                disabled={!activeChangeProposal}
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (!activeChangeProposal) return;
                   handleOpenCreateDialog(node.req);
                 }}
               >
                 <Plus className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Create link</TooltipContent>
+            <TooltipContent>{activeChangeProposal ? 'Create link' : 'Select a Change Proposal to create links'}</TooltipContent>
           </Tooltip>
         </div>
 
@@ -797,6 +810,41 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
               </Button>
             )}
           </div>
+
+          {/* CP Banner */}
+          {activeChangeProposal ? (
+            <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-md bg-green-500/10 border border-green-500/20 text-green-800 dark:text-green-300 text-xs">
+              <GitPullRequestDraft className="h-3.5 w-3.5 shrink-0" />
+              <span className="font-medium">Active Change Proposal: {activeChangeProposal.title}</span>
+              <span className="text-muted-foreground">({activeChangeProposal.status})</span>
+              {changeProposals.length > 1 && (
+                <Select
+                  value={activeChangeProposal.id}
+                  onValueChange={(id) => {
+                    const cp = changeProposals.find((c) => c.id === id);
+                    if (cp) setActiveChangeProposal(cp);
+                  }}
+                >
+                  <SelectTrigger className="h-6 text-xs w-fit ml-auto border-green-500/30">
+                    <SelectValue placeholder="Switch CP" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {changeProposals.map((cp) => (
+                      <SelectItem key={cp.id} value={cp.id} className="text-xs">
+                        {cp.title} ({cp.status})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          ) : (
+            <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              <span className="font-medium">No active Change Proposal.</span>
+              <span className="text-muted-foreground">Traceability link creation and deletion are disabled. Open the Requirements page to select or create a CP.</span>
+            </div>
+          )}
         </div>
 
         <Tabs defaultValue="document-tree" className="flex-1 min-h-0 flex flex-col">
@@ -898,11 +946,18 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
                       size="sm"
                       variant="outline"
                       className="mt-1"
-                      onClick={() => handleOpenCreateDialog(selectedReq)}
+                      disabled={!activeChangeProposal}
+                      onClick={() => {
+                        if (!activeChangeProposal) return;
+                        handleOpenCreateDialog(selectedReq);
+                      }}
                     >
                       <Plus className="h-4 w-4" />
                       Create Link
                     </Button>
+                    {!activeChangeProposal && (
+                      <p className="text-xs text-amber-600 mt-1">Select a Change Proposal to create links</p>
+                    )}
                   </div>
                 ) : (
                   <div className="flex flex-col gap-1">
@@ -961,13 +1016,17 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
                               <Button
                                 variant="ghost"
                                 size="icon-xs"
-                                className="text-destructive hover:text-destructive"
-                                onClick={() => handleDeleteLink(link.id)}
+                                className={`${activeChangeProposal ? 'text-destructive hover:text-destructive' : 'opacity-40 cursor-not-allowed'}`}
+                                disabled={!activeChangeProposal}
+                                onClick={() => {
+                                  if (!activeChangeProposal) return;
+                                  handleDeleteLink(link.id);
+                                }}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>
                             </TooltipTrigger>
-                            <TooltipContent>Delete link</TooltipContent>
+                            <TooltipContent>{activeChangeProposal ? 'Delete link' : 'Select a Change Proposal to delete links'}</TooltipContent>
                           </Tooltip>
                         </div>
                       );
@@ -1203,7 +1262,7 @@ const TraceabilityPage: React.FC<TraceabilityPageProps> = ({ documentId, documen
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={handleCloseCreateDialog}>Cancel</Button>
-              <Button onClick={handleCreateLink} disabled={!selectedTargetDoc || !selectedTargetReq || creating}>
+              <Button onClick={handleCreateLink} disabled={!activeChangeProposal || !selectedTargetDoc || !selectedTargetReq || creating}>
                 {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <LinkIcon className="h-4 w-4" />}
                 {creating ? 'Creating...' : 'Create Link'}
               </Button>
