@@ -203,7 +203,8 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
     if (isPanning) {
       const dx = e.clientX - dragStart.current.x;
       const dy = e.clientY - dragStart.current.y;
-      setView(clampView(dragStart.current.viewX + dx, dragStart.current.viewY + dy));
+      // Subtract delta so content follows the finger (natural pan)
+      setView(clampView(dragStart.current.viewX - dx, dragStart.current.viewY - dy));
     } else if (isRubberBanding && rubberBand) {
       const svgX = view.x + e.nativeEvent.offsetX;
       const svgY = view.y + e.nativeEvent.offsetY;
