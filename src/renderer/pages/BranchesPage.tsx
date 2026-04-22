@@ -174,6 +174,24 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
   const [rubberBand, setRubberBand] = useState<{x1:number;y1:number;x2:number;y2:number} | null>(null);
   const dragStart = useRef({ x: 0, y: 0, viewX: 0, viewY: 0 });
   const animFrame = useRef<number | null>(null);
+  const hasCentered = useRef(false);
+
+  // Initial center on active node when diagram first loads
+  useEffect(() => {
+    if (hasCentered.current || nodes.length === 0 || size.width === 0) return;
+    const activeNode = nodes.find(n =>
+      branches.some(b => b.name === currentBranch && b.headCommitId === n.id)
+    );
+    if (activeNode && layout[activeNode.id]) {
+      const ax = (layout[activeNode.id].x) * COL_WIDTH + PADDING_X;
+      const ay = (layout[activeNode.id].y) * ROW_HEIGHT + PADDING_Y;
+      setView({
+        x: ax - size.width / 2,
+        y: ay - size.height * 0.65,
+      });
+      hasCentered.current = true;
+    }
+  }, [nodes, branches, currentBranch, size, layout]);
 
   // Clamp view with generous soft bounds (never let min > max)
   const clampView = (vx: number, vy: number) => {
@@ -253,7 +271,7 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
       );
       if (activeNode && layout[activeNode.id]) {
         const targetX = nodeX(activeNode.id) - size.width / 2;
-        const targetY = nodeY(activeNode.id) - size.height / 2;
+        const targetY = nodeY(activeNode.id) - size.height * 0.65;
         animateTo(targetX, targetY);
       }
     }
