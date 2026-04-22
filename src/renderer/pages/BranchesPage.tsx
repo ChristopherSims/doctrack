@@ -84,7 +84,7 @@ interface FlowDiagramProps {
 
 const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, currentBranch, onRevert }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ width: 800, height: 500 });
+  const [size, setSize] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
     const el = containerRef.current;
@@ -457,17 +457,19 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
           );
         })}
 
-        {/* Branch name labels at the top */}
+        {/* Branch name labels at the bottom */}
         {branches.map((b) => {
           const col = branchColumnMap[b.name] ?? 0;
           const x = col * COL_WIDTH + PADDING_X;
           const branchNodes = nodes.filter(n => n.branchName === b.name);
           if (branchNodes.length === 0) return null;
+          const maxBranchY = Math.max(...branchNodes.map(n => layout[n.id]?.y ?? 0));
+          const labelY = maxBranchY * ROW_HEIGHT + PADDING_Y + 28;
           return (
             <g key={`label-${b.id}`}>
               <rect
                 x={x - 30}
-                y={6}
+                y={labelY - 13}
                 width={60}
                 height={18}
                 rx={4}
@@ -476,7 +478,7 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
               />
               <text
                 x={x}
-                y={19}
+                y={labelY}
                 textAnchor="middle"
                 className="font-semibold"
                 fill={branchColor(b.name)}
