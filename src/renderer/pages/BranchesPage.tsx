@@ -174,13 +174,13 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
   const [rubberBand, setRubberBand] = useState<{x1:number;y1:number;x2:number;y2:number} | null>(null);
   const dragStart = useRef({ x: 0, y: 0, viewX: 0, viewY: 0 });
 
-  // Clamp view so graph stays roughly in reach (soft bounds)
+  // Clamp view with generous soft bounds (never let min > max)
   const clampView = (vx: number, vy: number) => {
-    const pad = 100;
-    const minX = -contentWidth - pad + size.width;
-    const maxX = contentWidth + pad;
-    const minY = -contentHeight - pad + size.height;
-    const maxY = contentHeight + pad;
+    const pad = 300;
+    const minX = -contentWidth - pad;
+    const maxX = size.width + pad;
+    const minY = -contentHeight - pad;
+    const maxY = size.height + pad;
     return {
       x: Math.max(minX, Math.min(maxX, vx)),
       y: Math.max(minY, Math.min(maxY, vy)),
