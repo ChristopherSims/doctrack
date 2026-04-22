@@ -1846,7 +1846,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
             <DialogTitle>{editingReq ? 'Edit Requirement' : 'New Requirement'}</DialogTitle>
           </DialogHeader>
           <Tabs defaultValue="basic" className="w-full">
-            <TabsList className="grid w-full grid-cols-5">
+            <TabsList className="grid w-full grid-cols-6">
               <TabsTrigger value="basic">Basic</TabsTrigger>
               <TabsTrigger value="details">Details</TabsTrigger>
               <TabsTrigger value="relations">Relations</TabsTrigger>
@@ -1863,6 +1863,10 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
                 {comments.length > 0 && (
                   <Badge variant="secondary" className="ml-0.5 h-4 min-w-4 text-[0.6rem] px-1">{comments.length}</Badge>
                 )}
+              </TabsTrigger>
+              <TabsTrigger value="change-proposal" className="gap-1">
+                <GitPullRequestDraft className="size-3.5" />
+                Change Proposal
               </TabsTrigger>
             </TabsList>
 
@@ -2589,10 +2593,100 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
                 )}
               </div>
             </TabsContent>
+
+            {/* ─── Change Proposal Tab ─── */}
+            <TabsContent value="change-proposal" className="grid gap-4 py-2">
+              {activeChangeProposal ? (
+                <div className="rounded-md border p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <GitPullRequestDraft className="size-5 text-blue-500" />
+                    <span className="font-semibold text-sm">Active Change Proposal</span>
+                    <Badge variant="outline" className="text-xs capitalize">{activeChangeProposal.status}</Badge>
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium">{activeChangeProposal.title}</div>
+                    {activeChangeProposal.description && (
+                      <div className="text-xs text-muted-foreground mt-0.5">{activeChangeProposal.description}</div>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Created by {activeChangeProposal.createdBy} on {new Date(activeChangeProposal.createdAt).toLocaleDateString()}
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => setActiveChangeProposal(null)}>
+                    Clear Selection
+                  </Button>
+                </div>
+              ) : (
+                <div className="rounded-md border border-amber-500/20 bg-amber-500/5 p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                    <AlertTriangle className="size-5" />
+                    <span className="font-semibold text-sm">No Active Change Proposal</span>
+                  </div>
+                  <p className="text-sm text-amber-700/80 dark:text-amber-400/80">
+                    You must select or create a Change Proposal before saving edits. All requirement changes will be tracked under the active proposal.
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label className="text-sm">Available Change Proposals</Label>
+                {changeProposals.filter((cp) => cp.status === 'draft' || cp.status === 'proposed' || cp.status === 'approved').length === 0 ? (
+                  <div className="text-sm text-muted-foreground text-center py-4 border rounded-md">
+                    No active change proposals found.
+                  </div>
+                ) : (
+                  <div className="space-y-1 max-h-60 overflow-y-auto">
+                    {changeProposals
+                      .filter((cp) => cp.status === 'draft' || cp.status === 'proposed' || cp.status === 'approved')
+                      .map((cp) => (
+                        <button
+                          key={cp.id}
+                          className={`w-full text-left px-3 py-2 rounded-md border text-sm flex items-center gap-2 transition-colors ${
+                            activeChangeProposal?.id === cp.id
+                              ? 'bg-blue-500/5 border-blue-500/30'
+                              : 'hover:bg-accent'
+                          }`}
+                          onClick={() => setActiveChangeProposal(cp)}
+                        >
+                          <GitPullRequestDraft className="size-4 text-muted-foreground" />
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium truncate">{cp.title}</div>
+                            <div className="text-xs text-muted-foreground">{cp.status} · {cp.createdBy}</div>
+                          </div>
+                          {activeChangeProposal?.id === cp.id && (
+                            <CheckCircle2 className="size-4 text-blue-500" />
+                          )}
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              <Button variant="outline" size="sm" className="w-full" onClick={() => setNewCpDialogOpen(true)}>
+                <Plus className="size-4 mr-1" />
+                Create New Change Proposal
+              </Button>
+            </TabsContent>
           </Tabs>
           <DialogFooter>
             <Button variant="outline" onClick={handleCloseDialog}>Cancel</Button>
-            <Button onClick={handleSaveRequirement}>Save</Button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button onClick={handleSaveRequirement} disabled={!activeChangeProposal}>
+                      <Save className="size-4 mr-1" />
+                      Save
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {!activeChangeProposal && (
+                  <TooltipContent>
+                    <p>Select a Change Proposal before saving</p>
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
           </DialogFooter>
         </DialogContent>
       </Dialog>
