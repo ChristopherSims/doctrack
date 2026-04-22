@@ -173,6 +173,7 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
   const [isRubberBanding, setIsRubberBanding] = useState(false);
   const [rubberBand, setRubberBand] = useState<{x1:number;y1:number;x2:number;y2:number} | null>(null);
   const dragStart = useRef({ x: 0, y: 0, viewX: 0, viewY: 0 });
+  const animFrame = useRef<number | null>(null);
 
   // Clamp view with generous soft bounds (never let min > max)
   const clampView = (vx: number, vy: number) => {
@@ -187,7 +188,34 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
     };
   };
 
+  // Spring-back animation: ease-out cubic over 600 ms
+  const animateTo = (targetX: number, targetY: number) => {
+    if (animFrame.current) cancelAnimationFrame(animFrame.current);
+    const startX = view.x;
+    const startY = view.y;
+    const startTime = performance.now();
+    const duration = 600;
+
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - startTime) / duration);
+      const ease = 1 - Math.pow(1 - t, 3);
+      const nextX = startX + (targetX - startX) * ease;
+      const nextY = startY + (targetY - startY) * ease;
+      setView({ x: nextX, y: nextY });
+      if (t < 1) {
+        animFrame.current = requestAnimationFrame(tick);
+      } else {
+        animFrame.current = null;
+      }
+    };
+    animFrame.current = requestAnimationFrame(tick);
+  };
+
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (animFrame.current) {
+      cancelAnimationFrame(animFrame.current);
+      animFrame.current = null;
+    }
     if (e.shiftKey) {
       setIsRubberBanding(true);
       const svgX = view.x + e.nativeEvent.offsetX;
@@ -217,13 +245,24 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
       setIsRubberBanding(false);
       setRubberBand(null);
     }
-    setIsPanning(false);
+    if (isPanning) {
+      setIsPanning(false);
+      // Rubber-band: gently snap view so active node is near center
+      const activeNode = nodes.find(n =>
+        branches.some(b => b.name === currentBranch && b.headCommitId === n.id)
+      );
+      if (activeNode && layout[activeNode.id]) {
+        const targetX = nodeX(activeNode.id) - size.width / 2;
+        const targetY = nodeY(activeNode.id) - size.height / 2;
+        animateTo(targetX, targetY);
+      }
+    }
   };
 
   return (
-    <div ref={containerRef} className="border rounded-md bg-card relative" style={{ height: '60vh', minHeight: 360 }}>
+    <div ref={containerRef} className="border rounded-md bg-card relative flex flex-col" style={{ height: '60vh', minHeight: 360 }}>
       {/* Legend */}
-      <div className="flex items-center gap-3 px-4 py-2 border-b bg-muted/30 flex-wrap">
+      <div className="flex items-center gap-3 px-4 py-2 border-b bg-muted/30 flex-wrap flex-shrink-0">
         {branches.map((b) => (
           <div key={b.id} className="flex items-center gap-1.5 text-xs">
             <div className="w-3 h-3 rounded-full" style={{ backgroundColor: branchColor(b.name) }} />
@@ -235,18 +274,17 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
         ))}
       </div>
 
-      <svg
-        width="100%"
-        height="100%"
-        viewBox={`${view.x} ${view.y} ${size.width} ${size.height}`}
-        preserveAspectRatio="xMidYMid meet"
-        className="select-none block"
-        style={{ cursor: isPanning ? 'grabbing' : isRubberBanding ? 'crosshair' : 'grab' }}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-      >
+      <div className="flex-1 min-h-0 relative">
+        <svg
+          className="absolute inset-0 w-full h-full select-none"
+          style={{ cursor: isPanning ? 'grabbing' : isRubberBanding ? 'crosshair' : 'grab' }}
+          viewBox={`${view.x} ${view.y} ${size.width} ${size.height}`}
+          preserveAspectRatio="xMidYMid meet"
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+        >
         <defs>
           <filter id="soft-glow" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="2" result="blur" />
@@ -448,7 +486,8 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
             <animate attributeName="stroke-dashoffset" from="0" to="8" dur="0.5s" repeatCount="indefinite" />
           </rect>
         )}
-      </svg>
+        </svg>
+      </div>
     </div>
   );
 };
