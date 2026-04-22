@@ -83,6 +83,20 @@ interface FlowDiagramProps {
 }
 
 const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, currentBranch, onRevert }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ width: 800, height: 500 });
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const cr = entries[0].contentRect;
+      setSize({ width: cr.width, height: cr.height });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // Assign column (x position) to each branch
   const branchColumnMap = useMemo(() => {
     const map: Record<string, number> = {};
@@ -105,34 +119,21 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
   }, [nodes]);
 
   // Layout: assign each node an (x, y) position.
-  // Each branch gets its own column (x). Y is a global row counter
-  // that advances whenever we place a node, ensuring no overlaps.
-  // We process commits chronologically so time flows top-to-bottom.
   const layout = useMemo(() => {
     const positions: Record<string, { x: number; y: number }> = {};
     const branchRowCounts: Record<string, number> = {};
-
-    // Track the max Y used so far to avoid vertical overlaps
     let globalRow = 0;
-
-    // Sort nodes by createdAt
     const sorted = [...nodes].sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
-
     for (const node of sorted) {
       const col = branchColumnMap[node.branchName] ?? 0;
       const branchRow = branchRowCounts[node.branchName] ?? 0;
-
-      // Use the max of global row and this branch's row to prevent overlap
       const row = Math.max(globalRow, branchRow);
-
       positions[node.id] = { x: col, y: row };
-
       branchRowCounts[node.branchName] = row + 1;
       globalRow = row + 1;
     }
-
     return positions;
   }, [nodes, branchColumnMap]);
 
@@ -160,30 +161,66 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
 
   const maxCol = Math.max(...Object.values(branchColumnMap), 0);
   const maxY = Math.max(...Object.values(layout).map(p => p.y), 0);
-  const svgWidth = (maxCol + 1) * COL_WIDTH + PADDING_X * 2;
-  const svgHeight = (maxY + 1) * ROW_HEIGHT + PADDING_Y * 2;
+  const contentWidth = (maxCol + 1) * COL_WIDTH + PADDING_X * 2;
+  const contentHeight = (maxY + 1) * ROW_HEIGHT + PADDING_Y * 2;
 
   const nodeX = (id: string) => (layout[id]?.x ?? 0) * COL_WIDTH + PADDING_X;
   const nodeY = (id: string) => (layout[id]?.y ?? 0) * ROW_HEIGHT + PADDING_Y;
 
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const dragStart = useRef({ x: 0, y: 0 });
+  // Pan via viewBox instead of <g transform> so SVG fills container without clipping
+  const [view, setView] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [isRubberBanding, setIsRubberBanding] = useState(false);
+  const [rubberBand, setRubberBand] = useState<{x1:number;y1:number;x2:number;y2:number} | null>(null);
+  const dragStart = useRef({ x: 0, y: 0, viewX: 0, viewY: 0 });
+
+  // Clamp view so graph stays roughly in reach (soft bounds)
+  const clampView = (vx: number, vy: number) => {
+    const pad = 100;
+    const minX = -contentWidth - pad + size.width;
+    const maxX = contentWidth + pad;
+    const minY = -contentHeight - pad + size.height;
+    const maxY = contentHeight + pad;
+    return {
+      x: Math.max(minX, Math.min(maxX, vx)),
+      y: Math.max(minY, Math.min(maxY, vy)),
+    };
+  };
 
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
-    setIsDragging(true);
-    dragStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+    if (e.shiftKey) {
+      setIsRubberBanding(true);
+      const svgX = view.x + e.nativeEvent.offsetX;
+      const svgY = view.y + e.nativeEvent.offsetY;
+      setRubberBand({ x1: svgX, y1: svgY, x2: svgX, y2: svgY });
+    } else {
+      setIsPanning(true);
+      dragStart.current = { x: e.clientX, y: e.clientY, viewX: view.x, viewY: view.y };
+    }
   };
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (!isDragging) return;
-    setPan({ x: e.clientX - dragStart.current.x, y: e.clientY - dragStart.current.y });
+    if (isPanning) {
+      const dx = e.clientX - dragStart.current.x;
+      const dy = e.clientY - dragStart.current.y;
+      setView(clampView(dragStart.current.viewX + dx, dragStart.current.viewY + dy));
+    } else if (isRubberBanding && rubberBand) {
+      const svgX = view.x + e.nativeEvent.offsetX;
+      const svgY = view.y + e.nativeEvent.offsetY;
+      setRubberBand({ ...rubberBand, x2: svgX, y2: svgY });
+    }
   };
 
-  const handleMouseUp = () => setIsDragging(false);
+  const handleMouseUp = () => {
+    if (isRubberBanding) {
+      setIsRubberBanding(false);
+      setRubberBand(null);
+    }
+    setIsPanning(false);
+  };
 
   return (
-    <div className="overflow-hidden border rounded-md bg-card relative">
+    <div ref={containerRef} className="border rounded-md bg-card relative" style={{ height: '60vh', minHeight: 360 }}>
       {/* Legend */}
       <div className="flex items-center gap-3 px-4 py-2 border-b bg-muted/30 flex-wrap">
         {branches.map((b) => (
@@ -198,10 +235,12 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
       </div>
 
       <svg
-        width={svgWidth}
-        height={svgHeight}
-        className="select-none"
-        style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+        width="100%"
+        height="100%"
+        viewBox={`${view.x} ${view.y} ${size.width} ${size.height}`}
+        preserveAspectRatio="xMidYMid meet"
+        className="select-none block"
+        style={{ cursor: isPanning ? 'grabbing' : isRubberBanding ? 'crosshair' : 'grab' }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -218,181 +257,196 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ nodes, branches, edges, curre
           <filter id="soft-shadow" x="-50%" y="-50%" width="200%" height="200%">
             <feDropShadow dx="0" dy="1" stdDeviation="2" floodOpacity="0.25" />
           </filter>
+          <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+            <path d="M 20 0 L 0 0 0 20" fill="none" stroke="currentColor" strokeWidth="0.5" opacity="0.08" />
+          </pattern>
         </defs>
-        <g transform={`translate(${pan.x}, ${pan.y})`}>
-          {/* Branch vertical lane lines (background) */}
-          {branches.map((b) => {
-            const col = branchColumnMap[b.name] ?? 0;
-            const x = col * COL_WIDTH + PADDING_X;
-            const branchNodes = nodes.filter(n => n.branchName === b.name);
-            if (branchNodes.length === 0) return null;
-            const ys = branchNodes.map(n => layout[n.id]?.y ?? 0);
-            const minY = Math.min(...ys) * ROW_HEIGHT + PADDING_Y;
-            const maxY = Math.max(...ys) * ROW_HEIGHT + PADDING_Y;
+
+        {/* Subtle background grid */}
+        <rect x={view.x} y={view.y} width={size.width} height={size.height} fill="url(#grid)" />
+
+        {/* Branch vertical lane lines (background) */}
+        {branches.map((b) => {
+          const col = branchColumnMap[b.name] ?? 0;
+          const x = col * COL_WIDTH + PADDING_X;
+          const branchNodes = nodes.filter(n => n.branchName === b.name);
+          if (branchNodes.length === 0) return null;
+          const ys = branchNodes.map(n => layout[n.id]?.y ?? 0);
+          const minY = Math.min(...ys) * ROW_HEIGHT + PADDING_Y;
+          const maxY = Math.max(...ys) * ROW_HEIGHT + PADDING_Y;
+          return (
+            <line
+              key={`bl-${b.id}`}
+              x1={x}
+              y1={minY - 15}
+              x2={x}
+              y2={maxY + 25}
+              stroke={branchColor(b.name)}
+              strokeWidth={4}
+              opacity={0.08}
+              strokeLinecap="round"
+            />
+          );
+        })}
+
+        {/* Edges */}
+        {edges.map((edge, i) => {
+          const fromNode = nodeMap[edge.from];
+          const toNode = nodeMap[edge.to];
+          if (!fromNode || !toNode || !layout[edge.from] || !layout[edge.to]) return null;
+
+          const fx = nodeX(edge.from);
+          const fy = nodeY(edge.from);
+          const tx = nodeX(edge.to);
+          const ty = nodeY(edge.to);
+
+          const isCrossBranch = fromNode.branchName !== toNode.branchName;
+
+          if (!isCrossBranch) {
             return (
               <line
-                key={`bl-${b.id}`}
-                x1={x}
-                y1={minY - 15}
-                x2={x}
-                y2={maxY + 25}
-                stroke={branchColor(b.name)}
-                strokeWidth={4}
-                opacity={0.08}
-                strokeLinecap="round"
-              />
-            );
-          })}
-
-          {/* Edges — draw BEFORE nodes so nodes sit on top */}
-          {edges.map((edge, i) => {
-            const fromNode = nodeMap[edge.from];
-            const toNode = nodeMap[edge.to];
-            if (!fromNode || !toNode || !layout[edge.from] || !layout[edge.to]) return null;
-
-            const fx = nodeX(edge.from);
-            const fy = nodeY(edge.from);
-            const tx = nodeX(edge.to);
-            const ty = nodeY(edge.to);
-
-            const isCrossBranch = fromNode.branchName !== toNode.branchName;
-
-            // Same-branch parent edge: simple vertical line
-            if (!isCrossBranch) {
-              return (
-                <line
-                  key={`e${i}`}
-                  x1={fx}
-                  y1={fy + NODE_R}
-                  x2={tx}
-                  y2={ty - NODE_R}
-                  stroke={branchColor(toNode.branchName)}
-                  strokeWidth={2.5}
-                  opacity={0.45}
-                />
-              );
-            }
-
-            // Cross-branch edge (merge): draw a smooth curve
-            const midY = fy + (ty - fy) * 0.5;
-            const sourceColor = branchColor(fromNode.branchName);
-
-            return (
-              <path
                 key={`e${i}`}
-                d={`M ${fx} ${fy + NODE_R} C ${fx} ${midY}, ${tx} ${midY}, ${tx} ${ty - NODE_R}`}
-                fill="none"
-                stroke={sourceColor}
-                strokeWidth={2}
-                opacity={0.6}
+                x1={fx}
+                y1={fy + NODE_R}
+                x2={tx}
+                y2={ty - NODE_R}
+                stroke={branchColor(toNode.branchName)}
+                strokeWidth={2.5}
+                opacity={0.45}
               />
             );
-          })}
+          }
 
-          {/* Nodes */}
-          {nodes.map((node) => {
-            if (!layout[node.id]) return null;
-            const x = nodeX(node.id);
-            const y = nodeY(node.id);
-            const color = branchColor(node.branchName);
-            const isUncommitted = node.isUncommitted;
-            const isCurrentBranchHead = branches.some(
-              b => b.name === currentBranch && b.headCommitId === node.id
-            );
+          const midY = fy + (ty - fy) * 0.5;
+          const sourceColor = branchColor(fromNode.branchName);
 
-            return (
-              <g key={node.id}>
-                {/* Soft blink ring for active (current branch head) node */}
-                {isCurrentBranchHead && (
-                  <circle cx={x} cy={y} r={NODE_R + 4} fill="none" stroke={color} strokeWidth={1.5} opacity={0.15} filter="url(#soft-glow)">
-                    <animate attributeName="r" values={`${NODE_R + 4};${NODE_R + 10};${NODE_R + 4}`} dur="3s" repeatCount="indefinite" />
-                    <animate attributeName="opacity" values="0.15;0.4;0.15" dur="3s" repeatCount="indefinite" />
-                  </circle>
-                )}
-                {/* Node circle: uncommitted = hollow (transparent), committed = filled */}
-                <circle
-                  cx={x}
-                  cy={y}
-                  r={NODE_R}
-                  fill={isUncommitted ? 'none' : color}
-                  stroke={color}
-                  strokeWidth={2}
-                  filter="url(#soft-shadow)"
-                  className="cursor-pointer"
-                />
-                {/* Commit message label */}
+          return (
+            <path
+              key={`e${i}`}
+              d={`M ${fx} ${fy + NODE_R} C ${fx} ${midY}, ${tx} ${midY}, ${tx} ${ty - NODE_R}`}
+              fill="none"
+              stroke={sourceColor}
+              strokeWidth={2}
+              opacity={0.6}
+            />
+          );
+        })}
+
+        {/* Nodes */}
+        {nodes.map((node) => {
+          if (!layout[node.id]) return null;
+          const x = nodeX(node.id);
+          const y = nodeY(node.id);
+          const color = branchColor(node.branchName);
+          const isUncommitted = node.isUncommitted;
+          const isCurrentBranchHead = branches.some(
+            b => b.name === currentBranch && b.headCommitId === node.id
+          );
+
+          return (
+            <g key={node.id}>
+              {isCurrentBranchHead && (
+                <circle cx={x} cy={y} r={NODE_R + 4} fill="none" stroke={color} strokeWidth={1.5} opacity={0.15} filter="url(#soft-glow)">
+                  <animate attributeName="r" values={`${NODE_R + 4};${NODE_R + 10};${NODE_R + 4}`} dur="3s" repeatCount="indefinite" />
+                  <animate attributeName="opacity" values="0.15;0.4;0.15" dur="3s" repeatCount="indefinite" />
+                </circle>
+              )}
+              <circle
+                cx={x}
+                cy={y}
+                r={NODE_R}
+                fill={isUncommitted ? 'none' : color}
+                stroke={color}
+                strokeWidth={2}
+                filter="url(#soft-shadow)"
+                className="cursor-pointer"
+              />
+              <text
+                x={x + NODE_R + 10}
+                y={y + 4}
+                className="fill-foreground"
+                fontSize={11}
+              >
+                {node.message.length > 40 ? node.message.slice(0, 40) + '...' : node.message}
+              </text>
+              {!isUncommitted && (
                 <text
                   x={x + NODE_R + 10}
-                  y={y + 4}
-                  className="fill-foreground"
-                  fontSize={11}
+                  y={y + 16}
+                  className="fill-muted-foreground"
+                  fontSize={9}
                 >
-                  {node.message.length > 40 ? node.message.slice(0, 40) + '...' : node.message}
+                  {node.author} · {new Date(node.createdAt).toLocaleDateString()}
                 </text>
-                {/* Author + time */}
-                {!isUncommitted && (
-                  <text
-                    x={x + NODE_R + 10}
-                    y={y + 16}
-                    className="fill-muted-foreground"
-                    fontSize={9}
-                  >
-                    {node.author} · {new Date(node.createdAt).toLocaleDateString()}
-                  </text>
-                )}
-                {/* Revert button */}
-                {onRevert && !isUncommitted && (
-                  <g
-                    className="opacity-0 hover:opacity-100 cursor-pointer"
-                    onClick={() => onRevert(node.id, node.branchName)}
-                  >
-                    <rect
-                      x={x - NODE_R - 20}
-                      y={y - 9}
-                      width={18}
-                      height={18}
-                      rx={3}
-                      fill="hsl(var(--destructive))"
-                      opacity={0.85}
-                    />
-                    <text x={x - NODE_R - 11} y={y + 4} textAnchor="middle" fontSize={10} fill="#fff">R</text>
-                  </g>
-                )}
-              </g>
-            );
-          })}
+              )}
+              {onRevert && !isUncommitted && (
+                <g
+                  className="opacity-0 hover:opacity-100 cursor-pointer"
+                  onClick={() => onRevert(node.id, node.branchName)}
+                >
+                  <rect
+                    x={x - NODE_R - 20}
+                    y={y - 9}
+                    width={18}
+                    height={18}
+                    rx={3}
+                    fill="hsl(var(--destructive))"
+                    opacity={0.85}
+                  />
+                  <text x={x - NODE_R - 11} y={y + 4} textAnchor="middle" fontSize={10} fill="#fff">R</text>
+                </g>
+              )}
+            </g>
+          );
+        })}
 
-          {/* Branch name labels at the top */}
-          {branches.map((b) => {
-            const col = branchColumnMap[b.name] ?? 0;
-            const x = col * COL_WIDTH + PADDING_X;
-            const branchNodes = nodes.filter(n => n.branchName === b.name);
-            if (branchNodes.length === 0) return null;
-            return (
-              <g key={`label-${b.id}`}>
-                <rect
-                  x={x - 30}
-                  y={6}
-                  width={60}
-                  height={18}
-                  rx={4}
-                  fill={branchColor(b.name)}
-                  opacity={0.15}
-                />
-                <text
-                  x={x}
-                  y={19}
-                  textAnchor="middle"
-                  className="font-semibold"
-                  fill={branchColor(b.name)}
-                  fontSize={11}
-                >
-                  {b.name}
-                </text>
-              </g>
-            );
-          })}
-        </g>
+        {/* Branch name labels at the top */}
+        {branches.map((b) => {
+          const col = branchColumnMap[b.name] ?? 0;
+          const x = col * COL_WIDTH + PADDING_X;
+          const branchNodes = nodes.filter(n => n.branchName === b.name);
+          if (branchNodes.length === 0) return null;
+          return (
+            <g key={`label-${b.id}`}>
+              <rect
+                x={x - 30}
+                y={6}
+                width={60}
+                height={18}
+                rx={4}
+                fill={branchColor(b.name)}
+                opacity={0.15}
+              />
+              <text
+                x={x}
+                y={19}
+                textAnchor="middle"
+                className="font-semibold"
+                fill={branchColor(b.name)}
+                fontSize={11}
+              >
+                {b.name}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Rubber-band selection rectangle */}
+        {isRubberBanding && rubberBand && (
+          <rect
+            x={Math.min(rubberBand.x1, rubberBand.x2)}
+            y={Math.min(rubberBand.y1, rubberBand.y2)}
+            width={Math.abs(rubberBand.x2 - rubberBand.x1)}
+            height={Math.abs(rubberBand.y2 - rubberBand.y1)}
+            fill="rgba(59, 130, 246, 0.08)"
+            stroke="#3b82f6"
+            strokeWidth={1}
+            strokeDasharray="4,4"
+            rx={4}
+          >
+            <animate attributeName="stroke-dashoffset" from="0" to="8" dur="0.5s" repeatCount="indefinite" />
+          </rect>
+        )}
       </svg>
     </div>
   );
