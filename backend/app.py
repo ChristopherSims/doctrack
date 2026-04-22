@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from database import init_db, get_all_documents, create_document_db, get_document_db, update_document_db, delete_document_db
 from database import get_all_requirements, create_requirement_db, get_requirement_db, update_requirement_db, delete_requirement_db
-from database import batch_update_requirements, get_all_requirements_flat, get_document_stats
+from database import batch_update_requirements_async, global_search_requirements_async, lint_requirements_async, get_document_stats
 from database import create_commit, get_commits, get_commit
 from database import create_branch, get_branches, checkout_branch, merge_branches, revert_branch, get_commit_graph
 from database import create_tag, get_tags
@@ -12,11 +12,11 @@ from database import add_edit_history, get_edit_history, get_edit_history_for_do
 from database import get_unique_tags
 from database import get_comments, create_comment, delete_comment
 from database import get_dashboard_stats
-from database import lint_requirements
 from database import create_review, get_reviews, update_review, delete_review
 from database import create_baseline, get_baselines, get_baseline, delete_baseline
 from database import get_change_proposals, create_change_proposal, get_change_proposal, update_change_proposal, delete_change_proposal, get_change_proposal_history
 from export import export_csv, export_word, export_pdf
+from export import export_csv_async, export_word_async, export_pdf_async
 import os
 import csv
 import json
@@ -140,12 +140,12 @@ def document_stats(doc_id):
         return jsonify({'success': False, 'error': 'Failed to fetch document stats'}), 500
 
 @app.route('/api/documents/<doc_id>/lint', methods=['GET'])
-def lint_document(doc_id):
+async def lint_document(doc_id):
     try:
         document = get_document_db(doc_id)
         if not document:
             return jsonify({'success': False, 'error': 'Document not found'}), 404
-        issues = lint_requirements(doc_id)
+        issues = await lint_requirements_async(doc_id)
         return jsonify({'success': True, 'data': issues, 'count': len(issues)})
     except Exception as e:
         logger.error(f"Error linting document {doc_id}: {e}")
@@ -215,7 +215,7 @@ def delete_requirement(req_id):
 # --- Batch Update Requirements ---
 
 @app.route('/api/requirements/batch', methods=['PUT'])
-def batch_update():
+async def batch_update():
     try:
         data, err = validate_json(required_fields=['updates'])
         if err:
@@ -223,7 +223,7 @@ def batch_update():
         updates = data['updates']
         if not isinstance(updates, list) or len(updates) == 0:
             return jsonify({'success': False, 'error': 'updates must be a non-empty array'}), 400
-        results, errors = batch_update_requirements(updates)
+        results, errors = await batch_update_requirements_async(updates)
         status_code = 200 if not errors else 207  # 207 Multi-Status for partial success
         return jsonify({
             'success': len(errors) == 0,
@@ -262,20 +262,12 @@ def search_requirements(doc_id):
         return jsonify({'success': False, 'error': 'Failed to search requirements'}), 500
 
 @app.route('/api/requirements/search', methods=['GET'])
-def global_search_requirements():
+async def global_search_requirements():
     try:
         query = request.args.get('q', '').lower()
         if not query:
             return jsonify({'success': False, 'error': 'Search query parameter "q" is required'}), 400
-        all_requirements = get_all_requirements_flat()
-        filtered = [
-            r for r in all_requirements
-            if query in r.get('title', '').lower()
-            or query in r.get('description', '').lower()
-            or query in r.get('rationale', '').lower()
-            or query in r.get('tags', '').lower()
-            or query in r.get('verificationMethod', '').lower()
-        ]
+        filtered = await global_search_requirements_async(query)
         return jsonify({'success': True, 'data': filtered, 'count': len(filtered)})
     except Exception as e:
         logger.error(f"Error in global requirement search: {e}")
@@ -962,7 +954,7 @@ def dashboard_route():
 # --- Export ---
 
 @app.route('/api/documents/<doc_id>/export/<format>', methods=['POST'])
-def export_document(doc_id, format):
+async def export_document(doc_id, format):
     try:
         # Verify document exists
         document = get_document_db(doc_id)
@@ -970,19 +962,19 @@ def export_document(doc_id, format):
             return jsonify({'success': False, 'error': 'Document not found'}), 404
 
         if format == 'csv':
-            csv_content = export_csv(doc_id)
+            csv_content = await export_csv_async(doc_id)
             return csv_content, 200, {
                 'Content-Type': 'text/csv',
                 'Content-Disposition': f'attachment; filename="{document.get("title", "document")}.csv"'
             }
         elif format == 'word':
-            docx_bytes = export_word(doc_id)
+            docx_bytes = await export_word_async(doc_id)
             return docx_bytes, 200, {
                 'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                 'Content-Disposition': f'attachment; filename="{document.get("title", "document")}.docx"'
             }
         elif format == 'pdf':
-            pdf_bytes = export_pdf(doc_id)
+            pdf_bytes = await export_pdf_async(doc_id)
             return pdf_bytes, 200, {
                 'Content-Type': 'application/pdf',
                 'Content-Disposition': f'attachment; filename="{document.get("title", "document")}.pdf"'

@@ -382,3 +382,25 @@ def export_pdf(document_id):
     doc.build(elements)
     buffer.seek(0)
     return buffer.read()
+
+
+# ---------------------------------------------------------------------------
+# Async wrappers — run exports in thread pools so they don't block the loop
+# ---------------------------------------------------------------------------
+
+import asyncio  # noqa: E402
+
+
+async def export_csv_async(document_id):
+    """Async wrapper for export_csv()."""
+    return await asyncio.to_thread(export_csv, document_id)
+
+
+async def export_word_async(document_id):
+    """Async wrapper for export_word()."""
+    return await asyncio.to_thread(export_word, document_id)
+
+
+async def export_pdf_async(document_id):
+    """Async wrapper for export_pdf()."""
+    return await asyncio.to_thread(export_pdf, document_id)

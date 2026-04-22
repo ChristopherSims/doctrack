@@ -6,6 +6,8 @@ from uuid import uuid4
 import time
 import random
 
+from async_utils import run_in_thread, run_cpu_bound, gather_tasks
+
 DB_PATH = os.environ.get('DOCTRACK_DB_PATH', os.path.join(os.path.expanduser('~'), '.doctrack', 'doctrack.db'))
 
 def ensure_db_dir():
@@ -537,6 +539,39 @@ def get_all_requirements_flat():
     results.sort(key=lambda r: (r.get('documentId', ''), _parse_level_for_sort(r.get('level', '1')), r.get('sequenceNumber', 1)))
     return results
 
+
+async def global_search_requirements_async(query):
+    """Global search across all documents, parallelized by document.
+
+    Fetches the documents list, then searches each document's requirements
+    concurrently via asyncio.gather().
+    """
+    docs = await run_in_thread(get_all_documents)
+    q = query.lower()
+
+    async def _search_one(doc):
+        doc_id = doc['id']
+        requirements = await run_in_thread(get_all_requirements, doc_id)
+        filtered = []
+        for r in requirements:
+            if (q in r.get('title', '').lower()
+                    or q in r.get('description', '').lower()
+                    or q in r.get('rationale', '').lower()
+                    or q in r.get('tags', '').lower()
+                    or q in r.get('verificationMethod', '').lower()):
+                filtered.append(r)
+        return filtered
+
+    tasks = [_search_one(d) for d in docs]
+    results_per_doc = await gather_tasks(*tasks)
+
+    combined = []
+    for res in results_per_doc:
+        if isinstance(res, list):
+            combined.extend(res)
+        # else: exception occurred in one document search, skip
+    return combined
+
 def get_requirement_db(req_id):
     """Get a specific requirement"""
     conn = get_connection()
@@ -816,6 +851,15 @@ def batch_update_requirements(updates_list):
         conn.close()
     
     return (updated_ids, errors)
+
+
+async def batch_update_requirements_async(updates_list):
+    """Async wrapper for batch_update_requirements.
+
+    Runs the synchronous batch update in a thread pool so it doesn't block
+    the event loop. SQLite writes remain serial within the transaction.
+    """
+    return await run_in_thread(batch_update_requirements, updates_list)
 
 def get_document_stats(doc_id):
     """Get requirement statistics for a document.
@@ -1881,6 +1925,79 @@ AMBIGUOUS_WORDS = [
     'generally', 'usually', 'typically', 'as appropriate', 'if applicable',
 ]
 
+
+def _lint_requirement_dict(req, title_counts):
+    """Lint a single requirement dict. Used by lint_requirements and async parallel lint.
+
+    Args:
+        req: requirement dict with keys id, title, description, level, verificationMethod
+        title_counts: dict mapping lower-case title -> occurrence count
+
+    Returns:
+        A dict {requirementId, requirementTitle, level, issues} or None if no issues.
+    """
+    req_id = req.get('id', '')
+    title = req.get('title', '') or ''
+    description = req.get('description', '') or ''
+    level = req.get('level', '') or ''
+    verification = req.get('verificationMethod', '') or ''
+    issues = []
+
+    combined = (title + ' ' + description).lower()
+    for word in AMBIGUOUS_WORDS:
+        if word in combined:
+            issues.append({
+                'severity': 'warning',
+                'message': f'Ambiguous word: "{word}"',
+                'field': 'description' if word in description.lower() else 'title',
+            })
+
+    if not verification or verification.strip() == '':
+        issues.append({
+            'severity': 'error',
+            'message': 'Missing verification method',
+            'field': 'verificationMethod',
+        })
+
+    desc_text = description.strip()
+    if len(desc_text) < 20:
+        issues.append({
+            'severity': 'warning',
+            'message': 'Description is very short (< 20 chars)',
+            'field': 'description',
+        })
+    if len(desc_text) > 2000:
+        issues.append({
+            'severity': 'warning',
+            'message': 'Description is very long (> 2000 chars)',
+            'field': 'description',
+        })
+
+    if not title.strip():
+        issues.append({
+            'severity': 'error',
+            'message': 'Title is empty',
+            'field': 'title',
+        })
+
+    title_norm = title.lower().strip()
+    if title_norm and title_counts.get(title_norm, 0) > 1:
+        issues.append({
+            'severity': 'error',
+            'message': 'Duplicate title detected',
+            'field': 'title',
+        })
+
+    if issues:
+        return {
+            'requirementId': req_id,
+            'requirementTitle': title,
+            'level': level,
+            'issues': issues,
+        }
+    return None
+
+
 def lint_requirements(doc_id):
     """Lint all requirements in a document and return quality issues.
 
@@ -1895,81 +2012,69 @@ def lint_requirements(doc_id):
     rows = cursor.fetchall()
     conn.close()
 
-    # Build title index for duplicate detection
-    title_map = {}
+    # Convert rows to dicts for the shared helper
+    reqs = []
     for row in rows:
-        title_norm = (row[1] or '').lower().strip()
+        reqs.append({
+            'id': row[0],
+            'title': row[1] or '',
+            'description': row[2] or '',
+            'level': row[3] or '',
+            'verificationMethod': row[4] or '',
+        })
+
+    title_counts = {}
+    for r in reqs:
+        title_norm = r['title'].lower().strip()
         if title_norm:
-            title_map.setdefault(title_norm, []).append(row[0])
+            title_counts[title_norm] = title_counts.get(title_norm, 0) + 1
 
     results = []
-    for row in rows:
-        req_id = row[0]
-        title = row[1] or ''
-        description = row[2] or ''
-        level = row[3] or ''
-        verification = row[4] or ''
-        issues = []
-
-        # Check ambiguous words in title and description
-        combined = (title + ' ' + description).lower()
-        for word in AMBIGUOUS_WORDS:
-            if word in combined:
-                issues.append({
-                    'severity': 'warning',
-                    'message': f'Ambiguous word: "{word}"',
-                    'field': 'description' if word in description.lower() else 'title',
-                })
-
-        # Missing verification method
-        if not verification or verification.strip() == '':
-            issues.append({
-                'severity': 'error',
-                'message': 'Missing verification method',
-                'field': 'verificationMethod',
-            })
-
-        # Length checks
-        desc_text = description.strip()
-        if len(desc_text) < 20:
-            issues.append({
-                'severity': 'warning',
-                'message': 'Description is very short (< 20 chars)',
-                'field': 'description',
-            })
-        if len(desc_text) > 2000:
-            issues.append({
-                'severity': 'warning',
-                'message': 'Description is very long (> 2000 chars)',
-                'field': 'description',
-            })
-
-        # Empty title
-        if not title.strip():
-            issues.append({
-                'severity': 'error',
-                'message': 'Title is empty',
-                'field': 'title',
-            })
-
-        # Duplicate title
-        title_norm = title.lower().strip()
-        if title_norm and len(title_map.get(title_norm, [])) > 1:
-            issues.append({
-                'severity': 'error',
-                'message': 'Duplicate title detected',
-                'field': 'title',
-            })
-
-        if issues:
-            results.append({
-                'requirementId': req_id,
-                'requirementTitle': title,
-                'level': level,
-                'issues': issues,
-            })
+    for r in reqs:
+        res = _lint_requirement_dict(r, title_counts)
+        if res:
+            results.append(res)
 
     return results
+
+
+async def lint_requirements_async(doc_id):
+    """Async version of lint_requirements.
+
+    Fetches requirements in a thread, then runs lint checks concurrently
+    using gather_tasks().
+    """
+    def _fetch():
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT id, title, description, level, verificationMethod FROM requirements WHERE documentId = ?',
+            (doc_id,)
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        reqs = []
+        for row in rows:
+            reqs.append({
+                'id': row[0],
+                'title': row[1] or '',
+                'description': row[2] or '',
+                'level': row[3] or '',
+                'verificationMethod': row[4] or '',
+            })
+
+        title_counts = {}
+        for r in reqs:
+            title_norm = r['title'].lower().strip()
+            if title_norm:
+                title_counts[title_norm] = title_counts.get(title_norm, 0) + 1
+        return reqs, title_counts
+
+    reqs, title_counts = await run_in_thread(_fetch)
+    tasks = [run_cpu_bound(_lint_requirement_dict, r, title_counts) for r in reqs]
+    results = await gather_tasks(*tasks)
+    return [r for r in results if r is not None]
 
 # --- Dashboard Stats ---
 
