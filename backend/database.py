@@ -333,6 +333,15 @@ def init_db():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_sessions_user ON user_sessions(userId)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_sessions_id ON user_sessions(id)')
     
+    # Create app_settings table for integrations and config
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+    )
+    ''')
+    
     # Seed default users if none exist
     cursor.execute('SELECT COUNT(*) FROM users')
     if cursor.fetchone()[0] == 0:
@@ -2312,6 +2321,59 @@ def get_change_proposal_history(cp_id):
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+# --- App Settings Functions ---
+
+def get_app_setting(key, default=None):
+    """Get an app setting by key."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT value FROM app_settings WHERE key = ?', (key,))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        try:
+            return json.loads(row[0])
+        except (json.JSONDecodeError, TypeError):
+            return row[0]
+    return default
+
+def set_app_setting(key, value):
+    """Set an app setting by key."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    now = datetime.utcnow().isoformat()
+    serialized = json.dumps(value) if not isinstance(value, str) else value
+    cursor.execute('''
+        INSERT INTO app_settings (key, value, updatedAt)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = excluded.updatedAt
+    ''', (key, serialized, now))
+    conn.commit()
+    conn.close()
+
+def delete_app_setting(key):
+    """Delete an app setting by key."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM app_settings WHERE key = ?', (key,))
+    conn.commit()
+    conn.close()
+
+def list_app_settings():
+    """List all app settings."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT key, value FROM app_settings ORDER BY key')
+    rows = cursor.fetchall()
+    conn.close()
+    result = {}
+    for row in rows:
+        try:
+            result[row[0]] = json.loads(row[1])
+        except (json.JSONDecodeError, TypeError):
+            result[row[0]] = row[1]
+    return result
 
 # --- User & Auth Functions ---
 

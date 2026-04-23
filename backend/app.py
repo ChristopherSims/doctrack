@@ -16,8 +16,10 @@ from database import create_review, get_reviews, update_review, delete_review
 from database import create_baseline, get_baselines, get_baseline, delete_baseline
 from database import get_change_proposals, create_change_proposal, get_change_proposal, update_change_proposal, delete_change_proposal, get_change_proposal_history
 from database import create_user_db, get_user_by_username, get_user_by_id, list_users_db, verify_user_password, create_session, get_session_user, delete_session
+from database import get_app_setting, set_app_setting, delete_app_setting, list_app_settings
 from export import export_csv, export_word, export_pdf
 from export import export_csv_async, export_word_async, export_pdf_async
+import onedev_client
 import os
 import csv
 import json
@@ -1092,6 +1094,185 @@ async def export_document(doc_id, format):
     except Exception as e:
         logger.error(f"Error exporting document {doc_id} as {format}: {e}")
         return jsonify({'success': False, 'error': f'Export failed: {str(e)}'}), 500
+
+# --- OneDev Integration Routes ---
+
+@app.route('/api/integrations/onedev/config', methods=['GET'])
+def get_onedev_config():
+    """Get OneDev connection config (token is masked)."""
+    try:
+        cfg = {
+            'url': get_app_setting('onedev_url', ''),
+            'project': get_app_setting('onedev_project', ''),
+            'token': '********' if get_app_setting('onedev_token', '') else '',
+        }
+        return jsonify({'success': True, 'data': cfg})
+    except Exception as e:
+        logger.error(f"Error fetching OneDev config: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch config'}), 500
+
+@app.route('/api/integrations/onedev/config', methods=['PUT'])
+def update_onedev_config():
+    """Update OneDev connection config."""
+    try:
+        data, err = validate_json()
+        if err:
+            return err
+        if 'url' in data:
+            set_app_setting('onedev_url', data['url'].rstrip('/'))
+        if 'project' in data:
+            set_app_setting('onedev_project', data['project'])
+        if 'token' in data and data['token'] != '********':
+            set_app_setting('onedev_token', data['token'])
+        return jsonify({'success': True, 'data': None})
+    except Exception as e:
+        logger.error(f"Error updating OneDev config: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/integrations/onedev/config', methods=['DELETE'])
+def delete_onedev_config():
+    """Remove OneDev connection config."""
+    try:
+        delete_app_setting('onedev_url')
+        delete_app_setting('onedev_token')
+        delete_app_setting('onedev_project')
+        return jsonify({'success': True, 'data': None})
+    except Exception as e:
+        logger.error(f"Error deleting OneDev config: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/integrations/onedev/test', methods=['POST'])
+def test_onedev_connection():
+    """Test connectivity to the configured OneDev server."""
+    try:
+        result = onedev_client.test_connection()
+        if result['ok']:
+            return jsonify({'success': True, 'data': result.get('data')})
+        return jsonify({'success': False, 'error': result.get('error')}), 502
+    except Exception as e:
+        logger.error(f"OneDev test error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/integrations/onedev/projects', methods=['GET'])
+def list_onedev_projects():
+    """Proxy: list OneDev projects."""
+    try:
+        query = request.args.get('q')
+        result = onedev_client.get_projects(query=query)
+        if result['ok']:
+            return jsonify({'success': True, 'data': result['data']})
+        return jsonify({'success': False, 'error': result.get('error')}), 502
+    except Exception as e:
+        logger.error(f"OneDev projects proxy error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/integrations/onedev/projects/<int:project_id>', methods=['GET'])
+def get_onedev_project(project_id):
+    """Proxy: get OneDev project."""
+    try:
+        result = onedev_client.get_project(project_id)
+        if result['ok']:
+            return jsonify({'success': True, 'data': result['data']})
+        return jsonify({'success': False, 'error': result.get('error')}), 502
+    except Exception as e:
+        logger.error(f"OneDev project proxy error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/integrations/onedev/issues', methods=['GET'])
+def list_onedev_issues():
+    """Proxy: list OneDev issues."""
+    try:
+        project_id = request.args.get('projectId', type=int)
+        if not project_id:
+            return jsonify({'success': False, 'error': 'projectId is required'}), 400
+        query = request.args.get('q')
+        offset = request.args.get('offset', 0, type=int)
+        count = request.args.get('count', 50, type=int)
+        result = onedev_client.get_issues(project_id, query=query, offset=offset, count=count)
+        if result['ok']:
+            return jsonify({'success': True, 'data': result['data']})
+        return jsonify({'success': False, 'error': result.get('error')}), 502
+    except Exception as e:
+        logger.error(f"OneDev issues proxy error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/integrations/onedev/issues/<int:issue_id>', methods=['GET'])
+def get_onedev_issue(issue_id):
+    """Proxy: get OneDev issue."""
+    try:
+        result = onedev_client.get_issue(issue_id)
+        if result['ok']:
+            return jsonify({'success': True, 'data': result['data']})
+        return jsonify({'success': False, 'error': result.get('error')}), 502
+    except Exception as e:
+        logger.error(f"OneDev issue proxy error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/integrations/onedev/builds', methods=['GET'])
+def list_onedev_builds():
+    """Proxy: list OneDev builds."""
+    try:
+        project_id = request.args.get('projectId', type=int)
+        if not project_id:
+            return jsonify({'success': False, 'error': 'projectId is required'}), 400
+        job = request.args.get('job')
+        offset = request.args.get('offset', 0, type=int)
+        count = request.args.get('count', 50, type=int)
+        result = onedev_client.get_builds(project_id, job=job, offset=offset, count=count)
+        if result['ok']:
+            return jsonify({'success': True, 'data': result['data']})
+        return jsonify({'success': False, 'error': result.get('error')}), 502
+    except Exception as e:
+        logger.error(f"OneDev builds proxy error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/integrations/onedev/builds/<int:build_id>', methods=['GET'])
+def get_onedev_build(build_id):
+    """Proxy: get OneDev build."""
+    try:
+        result = onedev_client.get_build(build_id)
+        if result['ok']:
+            return jsonify({'success': True, 'data': result['data']})
+        return jsonify({'success': False, 'error': result.get('error')}), 502
+    except Exception as e:
+        logger.error(f"OneDev build proxy error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/integrations/onedev/commits', methods=['GET'])
+def list_onedev_commits():
+    """Proxy: list OneDev commits."""
+    try:
+        project_id = request.args.get('projectId', type=int)
+        if not project_id:
+            return jsonify({'success': False, 'error': 'projectId is required'}), 400
+        branch = request.args.get('branch')
+        offset = request.args.get('offset', 0, type=int)
+        count = request.args.get('count', 50, type=int)
+        result = onedev_client.get_commits(project_id, branch=branch, offset=offset, count=count)
+        if result['ok']:
+            return jsonify({'success': True, 'data': result['data']})
+        return jsonify({'success': False, 'error': result.get('error')}), 502
+    except Exception as e:
+        logger.error(f"OneDev commits proxy error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/integrations/onedev/pull-requests', methods=['GET'])
+def list_onedev_pull_requests():
+    """Proxy: list OneDev pull requests."""
+    try:
+        project_id = request.args.get('projectId', type=int)
+        if not project_id:
+            return jsonify({'success': False, 'error': 'projectId is required'}), 400
+        query = request.args.get('q')
+        offset = request.args.get('offset', 0, type=int)
+        count = request.args.get('count', 50, type=int)
+        result = onedev_client.get_pull_requests(project_id, query=query, offset=offset, count=count)
+        if result['ok']:
+            return jsonify({'success': True, 'data': result['data']})
+        return jsonify({'success': False, 'error': result.get('error')}), 502
+    except Exception as e:
+        logger.error(f"OneDev PR proxy error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.errorhandler(404)
 def not_found(error):
