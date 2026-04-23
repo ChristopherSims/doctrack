@@ -135,6 +135,9 @@ export async function createRequirement(payload: {
   changeRequestLink?: string;
   testPlan?: string;
   testPlanLink?: string;
+  onedevIssueLink?: string;
+  onedevBuildLink?: string;
+  onedevCommitLink?: string;
   verificationMethod?: string;
   level?: string;
   rationale?: string;

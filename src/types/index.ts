@@ -28,6 +28,9 @@ export interface Requirement {
   changeRequestLink?: string;
   testPlan?: string;
   testPlanLink?: string;
+  onedevIssueLink?: string;
+  onedevBuildLink?: string;
+  onedevCommitLink?: string;
   verificationMethod?: string;
   rationale?: string;
   tags: string[];
@@ -73,6 +76,9 @@ export interface CreateRequirementPayload {
   changeRequestLink?: string;
   testPlan?: string;
   testPlanLink?: string;
+  onedevIssueLink?: string;
+  onedevBuildLink?: string;
+  onedevCommitLink?: string;
   verificationMethod?: string;
   parentRequirementId?: string;
   tags?: string[];
@@ -93,6 +99,9 @@ export interface UpdateRequirementPayload {
   changeRequestLink?: string;
   testPlan?: string;
   testPlanLink?: string;
+  onedevIssueLink?: string;
+  onedevBuildLink?: string;
+  onedevCommitLink?: string;
   verificationMethod?: string;
   parentRequirementId?: string;
   tags?: string[];

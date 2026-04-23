@@ -291,6 +291,9 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
     changeRequestLink: false,
     testPlanLink: false,
+    onedevIssueLink: false,
+    onedevBuildLink: false,
+    onedevCommitLink: false,
     rationale: false,
     tags: false,
   });
@@ -328,6 +331,9 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
     changeRequestLink: '',
     testPlan: '',
     testPlanLink: '',
+    onedevIssueLink: '',
+    onedevBuildLink: '',
+    onedevCommitLink: '',
     verificationMethod: 'manual' as string,
     level: '1',
     rationale: '',
@@ -580,6 +586,9 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
             changeRequestLink: row.changeRequestLink || '',
             testPlan: row.testPlan || '',
             testPlanLink: row.testPlanLink || '',
+            onedevIssueLink: row.onedevIssueLink || '',
+            onedevBuildLink: row.onedevBuildLink || '',
+            onedevCommitLink: row.onedevCommitLink || '',
             verificationMethod: row.verificationMethod || '',
             rationale: row.rationale || '',
             tags: row.tags || [],
@@ -659,6 +668,9 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
         changeRequestLink: req.changeRequestLink || '',
         testPlan: req.testPlan || '',
         testPlanLink: req.testPlanLink || '',
+        onedevIssueLink: req.onedevIssueLink || '',
+        onedevBuildLink: req.onedevBuildLink || '',
+        onedevCommitLink: req.onedevCommitLink || '',
         verificationMethod: req.verificationMethod || 'manual',
         level: req.level || '1',
         rationale: req.rationale || '',
@@ -692,6 +704,9 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
         changeRequestLink: '',
         testPlan: '',
         testPlanLink: '',
+        onedevIssueLink: '',
+        onedevBuildLink: '',
+        onedevCommitLink: '',
         verificationMethod: 'manual',
         level: '1',
         rationale: '',
@@ -905,7 +920,7 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
 
   /* ─── CSV Export ─── */
   const handleExportCSV = useCallback(() => {
-    const headers = ['Level', 'ID', 'Title', 'Description', 'Status', 'Priority', 'CR ID', 'CR Link', 'Test Plan', 'Test Plan Link', 'Verification', 'Rationale', 'Tags'];
+    const headers = ['Level', 'ID', 'Title', 'Description', 'Status', 'Priority', 'CR ID', 'CR Link', 'Test Plan', 'Test Plan Link', 'OneDev Issue', 'OneDev Build', 'OneDev Commit', 'Verification', 'Rationale', 'Tags'];
     const rows = filteredRequirements.map(r => [
       r.level || '1',
       r.id,
@@ -917,6 +932,9 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
       r.changeRequestLink || '',
       `"${(r.testPlan || '').replace(/"/g, '""')}"`,
       r.testPlanLink || '',
+      r.onedevIssueLink || '',
+      r.onedevBuildLink || '',
+      r.onedevCommitLink || '',
       r.verificationMethod || '',
       `"${(r.rationale || '').replace(/"/g, '""')}"`,
       `"${(Array.isArray(r.tags) ? r.tags.join(', ') : '').replace(/"/g, '""')}"`,
@@ -1153,6 +1171,66 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
     {
       accessorKey: 'testPlanLink',
       header: 'Test Plan Link',
+      size: 160,
+      cell: ({ getValue }) => {
+        const val = getValue() as string;
+        return val ? (
+          <a
+            href={val}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-primary hover:underline truncate block max-w-[140px]"
+          >
+            {val.length > 20 ? val.substring(0, 20) + '...' : val}
+          </a>
+        ) : (
+          <span className="text-muted-foreground text-xs">{'\u2014'}</span>
+        );
+      },
+    },
+    {
+      accessorKey: 'onedevIssueLink',
+      header: 'OneDev Issue',
+      size: 160,
+      cell: ({ getValue }) => {
+        const val = getValue() as string;
+        return val ? (
+          <a
+            href={val}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-primary hover:underline truncate block max-w-[140px]"
+          >
+            {val.length > 20 ? val.substring(0, 20) + '...' : val}
+          </a>
+        ) : (
+          <span className="text-muted-foreground text-xs">{'\u2014'}</span>
+        );
+      },
+    },
+    {
+      accessorKey: 'onedevBuildLink',
+      header: 'OneDev Build',
+      size: 160,
+      cell: ({ getValue }) => {
+        const val = getValue() as string;
+        return val ? (
+          <a
+            href={val}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-primary hover:underline truncate block max-w-[140px]"
+          >
+            {val.length > 20 ? val.substring(0, 20) + '...' : val}
+          </a>
+        ) : (
+          <span className="text-muted-foreground text-xs">{'\u2014'}</span>
+        );
+      },
+    },
+    {
+      accessorKey: 'onedevCommitLink',
+      header: 'OneDev Commit',
       size: 160,
       cell: ({ getValue }) => {
         const val = getValue() as string;
@@ -2003,6 +2081,33 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
                   value={formData.testPlanLink}
                   onChange={(e) => setFormData({ ...formData, testPlanLink: e.target.value })}
                   placeholder="URL to test plan document"
+                  type="url"
+                />
+              </div>
+              <div>
+                <Label className="mb-1.5">OneDev Issue Link</Label>
+                <Input
+                  value={formData.onedevIssueLink}
+                  onChange={(e) => setFormData({ ...formData, onedevIssueLink: e.target.value })}
+                  placeholder="URL to OneDev issue"
+                  type="url"
+                />
+              </div>
+              <div>
+                <Label className="mb-1.5">OneDev Build Link</Label>
+                <Input
+                  value={formData.onedevBuildLink}
+                  onChange={(e) => setFormData({ ...formData, onedevBuildLink: e.target.value })}
+                  placeholder="URL to OneDev build"
+                  type="url"
+                />
+              </div>
+              <div>
+                <Label className="mb-1.5">OneDev Commit Link</Label>
+                <Input
+                  value={formData.onedevCommitLink}
+                  onChange={(e) => setFormData({ ...formData, onedevCommitLink: e.target.value })}
+                  placeholder="URL to OneDev commit"
                   type="url"
                 />
               </div>
