@@ -79,6 +79,7 @@ import * as API from '../../api/api';
 import RichTextEditor from '@/components/RichTextEditor';
 import TagInput from '@/components/TagInput';
 import CSVImportDialog from '@/components/CSVImportDialog';
+import OneDevPickerDialog from '@/components/OneDevPickerDialog';
 import RequirementVersionDiff from '@/components/RequirementVersionDiff';
 import {
   getLevelDepth,
@@ -255,6 +256,8 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
     severity: 'info',
   });
   const [csvImportOpen, setCSVImportOpen] = useState(false);
+  const [oneDevPickerOpen, setOneDevPickerOpen] = useState(false);
+  const [oneDevPickerTarget, setOneDevPickerTarget] = useState<'onedevIssueLink' | 'onedevBuildLink' | 'onedevCommitLink'>('onedevIssueLink');
   const [comments, setComments] = useState<any[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [newCommentText, setNewCommentText] = useState('');
@@ -2086,30 +2089,72 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
               </div>
               <div>
                 <Label className="mb-1.5">OneDev Issue Link</Label>
-                <Input
-                  value={formData.onedevIssueLink}
-                  onChange={(e) => setFormData({ ...formData, onedevIssueLink: e.target.value })}
-                  placeholder="URL to OneDev issue"
-                  type="url"
-                />
+                <div className="flex gap-2">
+                  <Input
+                    value={formData.onedevIssueLink}
+                    onChange={(e) => setFormData({ ...formData, onedevIssueLink: e.target.value })}
+                    placeholder="URL to OneDev issue"
+                    type="url"
+                    className="flex-1"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      setOneDevPickerTarget('onedevIssueLink');
+                      setOneDevPickerOpen(true);
+                    }}
+                    title="Browse OneDev issues"
+                  >
+                    <Search className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               <div>
                 <Label className="mb-1.5">OneDev Build Link</Label>
-                <Input
-                  value={formData.onedevBuildLink}
-                  onChange={(e) => setFormData({ ...formData, onedevBuildLink: e.target.value })}
-                  placeholder="URL to OneDev build"
-                  type="url"
-                />
+                <div className="flex gap-2">
+                  <Input
+                    value={formData.onedevBuildLink}
+                    onChange={(e) => setFormData({ ...formData, onedevBuildLink: e.target.value })}
+                    placeholder="URL to OneDev build"
+                    type="url"
+                    className="flex-1"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      setOneDevPickerTarget('onedevBuildLink');
+                      setOneDevPickerOpen(true);
+                    }}
+                    title="Browse OneDev builds"
+                  >
+                    <Search className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               <div>
                 <Label className="mb-1.5">OneDev Commit Link</Label>
-                <Input
-                  value={formData.onedevCommitLink}
-                  onChange={(e) => setFormData({ ...formData, onedevCommitLink: e.target.value })}
-                  placeholder="URL to OneDev commit"
-                  type="url"
-                />
+                <div className="flex gap-2">
+                  <Input
+                    value={formData.onedevCommitLink}
+                    onChange={(e) => setFormData({ ...formData, onedevCommitLink: e.target.value })}
+                    placeholder="URL to OneDev commit"
+                    type="url"
+                    className="flex-1"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      setOneDevPickerTarget('onedevCommitLink');
+                      setOneDevPickerOpen(true);
+                    }}
+                    title="Browse OneDev commits"
+                  >
+                    <Search className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               <div>
                 <Label className="mb-1.5">Rationale</Label>
@@ -2862,6 +2907,15 @@ const RequirementsPage: React.FC<RequirementsPageProps> = ({ documentId, onBack,
           setCSVImportOpen(false);
           loadData();
           setSnackbar({ open: true, message: 'Requirements imported successfully', severity: 'success' });
+        }}
+      />
+
+      {/* ─── OneDev Picker Dialog ─── */}
+      <OneDevPickerDialog
+        open={oneDevPickerOpen}
+        onOpenChange={setOneDevPickerOpen}
+        onSelect={(url) => {
+          setFormData(prev => ({ ...prev, [oneDevPickerTarget]: url }));
         }}
       />
 
