@@ -29,11 +29,14 @@ import {
   GitCommitHorizontal,
   LayoutDashboard,
   GitPullRequestDraft,
+  LogOut,
+  User,
 } from 'lucide-react';
 import type { Page } from '../App';
 import type { RequirementFilter } from '../../types/index';
 import * as API from '../../api/api';
 import FilterPopover from './FilterPopover';
+import { useAuth } from '../contexts/AuthContext';
 
 interface NavigationProps {
   currentPage: Page;
@@ -58,6 +61,7 @@ const Navigation: React.FC<NavigationProps> = ({
   onFilterChange,
   isFilterActive,
 }) => {
+  const { user, logout } = useAuth();
   const [documents, setDocuments] = useState<any[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -331,6 +335,27 @@ const Navigation: React.FC<NavigationProps> = ({
             {item.label}
           </Button>
         ))}
+        {user && (
+          <>
+            <Separator orientation="vertical" className="h-6 mx-1" />
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <User className="h-3.5 w-3.5" />
+                <span className="font-medium text-foreground">{user.username}</span>
+                <span className="text-xs">({user.role})</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0"
+                onClick={logout}
+                title="Sign out"
+              >
+                <LogOut className="h-4 w-4 text-muted-foreground" />
+              </Button>
+            </div>
+          </>
+        )}
       </header>
 
       {/* New Document Dialog */}

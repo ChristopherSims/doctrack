@@ -12,7 +12,9 @@ import TraceabilityPage from './pages/TraceabilityPage';
 import AuditLogPage from './pages/AuditLogPage';
 import DashboardPage from './pages/DashboardPage';
 import ChangeProposalsPage from './pages/ChangeProposalsPage';
+import LoginPage from './pages/LoginPage';
 import CommandPalette from './components/CommandPalette';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import type { RequirementFilter } from '../types/index';
 
 export type Page = 'dashboard' | 'documents' | 'requirements' | 'history' | 'branches' | 'export' | 'settings' | 'diff' | 'traceability' | 'audit' | 'change-proposals';
@@ -36,6 +38,15 @@ interface AppState {
 }
 
 const App: React.FC = () => {
+  return (
+    <AuthProvider>
+      <AppInner />
+    </AuthProvider>
+  );
+};
+
+const AppInner: React.FC = () => {
+  const { user, isLoading } = useAuth();
   const [state, setState] = useState<AppState>({
     currentPage: 'dashboard',
     selectedDocumentId: null,
@@ -196,6 +207,18 @@ const App: React.FC = () => {
         return null;
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-background text-foreground">
+        <div className="text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage />;
+  }
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground">

@@ -43,6 +43,12 @@ export interface User {
   role: 'viewer' | 'editor' | 'reviewer' | 'admin';
 }
 
+export interface AuthUser {
+  id: number;
+  username: string;
+  role: 'admin' | 'user';
+}
+
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;

@@ -15,6 +15,7 @@ from database import get_dashboard_stats
 from database import create_review, get_reviews, update_review, delete_review
 from database import create_baseline, get_baselines, get_baseline, delete_baseline
 from database import get_change_proposals, create_change_proposal, get_change_proposal, update_change_proposal, delete_change_proposal, get_change_proposal_history
+from database import create_user_db, get_user_by_username, get_user_by_id, list_users_db, verify_user_password, create_session, get_session_user, delete_session
 from export import export_csv, export_word, export_pdf
 from export import export_csv_async, export_word_async, export_pdf_async
 import os
@@ -26,6 +27,7 @@ from uuid import uuid4
 from datetime import datetime
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'doctrack-dev-secret-key-change-in-production')
 
 # Configure CORS explicitly for Electron and local development origins
 CORS(app, origins=[
@@ -56,6 +58,14 @@ def validate_json(required_fields=None):
         if missing:
             return None, (jsonify({'success': False, 'error': f'Missing required fields: {", ".join(missing)}'}), 400)
     return data, None
+
+def get_current_user():
+    """Extract session token from Authorization header and return user dict."""
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        token = auth_header[7:]
+        return get_session_user(token)
+    return None
 
 # --- Document Routes ---
 
@@ -931,6 +941,101 @@ def get_cp_history_route(cp_id):
     except Exception as e:
         logger.error(f"Error fetching history for change proposal {cp_id}: {e}")
         return jsonify({'success': False, 'error': 'Failed to fetch change proposal history'}), 500
+
+# --- Auth Routes ---
+
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    try:
+        data, err = validate_json(required_fields=['username', 'password'])
+        if err:
+            return err
+        user = verify_user_password(data['username'], data['password'])
+        if not user:
+            return jsonify({'success': False, 'error': 'Invalid username or password'}), 401
+        token = create_session(user['id'])
+        return jsonify({
+            'success': True,
+            'data': {
+                'token': token,
+                'user': {
+                    'id': user['id'],
+                    'username': user['username'],
+                    'role': user['role'],
+                }
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error during login: {e}")
+        return jsonify({'success': False, 'error': 'Login failed'}), 500
+
+@app.route('/api/auth/me', methods=['GET'])
+def me():
+    try:
+        user = get_current_user()
+        if not user:
+            return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+        return jsonify({
+            'success': True,
+            'data': {
+                'id': user['id'],
+                'username': user['username'],
+                'role': user['role'],
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error fetching current user: {e}")
+        return jsonify({'success': False, 'error': 'Failed to fetch user'}), 500
+
+@app.route('/api/auth/logout', methods=['POST'])
+def logout():
+    try:
+        auth_header = request.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer '):
+            delete_session(auth_header[7:])
+        return jsonify({'success': True, 'data': None})
+    except Exception as e:
+        logger.error(f"Error during logout: {e}")
+        return jsonify({'success': False, 'error': 'Logout failed'}), 500
+
+# --- User Management (Admin only) ---
+
+@app.route('/api/users', methods=['GET'])
+def get_users():
+    try:
+        current = get_current_user()
+        if not current or current.get('role') != 'admin':
+            return jsonify({'success': False, 'error': 'Forbidden'}), 403
+        users = list_users_db()
+        return jsonify({'success': True, 'data': users})
+    except Exception as e:
+        logger.error(f"Error listing users: {e}")
+        return jsonify({'success': False, 'error': 'Failed to list users'}), 500
+
+@app.route('/api/users', methods=['POST'])
+def create_user_route():
+    try:
+        current = get_current_user()
+        if not current or current.get('role') != 'admin':
+            return jsonify({'success': False, 'error': 'Forbidden'}), 403
+        data, err = validate_json(required_fields=['username', 'password'])
+        if err:
+            return err
+        user = create_user_db(data['username'], data['password'], data.get('role', 'user'))
+        if not user:
+            return jsonify({'success': False, 'error': 'Username already exists'}), 409
+        return jsonify({
+            'success': True,
+            'data': {
+                'id': user['id'],
+                'username': user['username'],
+                'role': user['role'],
+                'createdAt': user['createdAt'],
+            }
+        }), 201
+    except Exception as e:
+        logger.error(f"Error creating user: {e}")
+        return jsonify({'success': False, 'error': f'Failed to create user: {str(e)}'}), 500
 
 # --- Health check ---
 

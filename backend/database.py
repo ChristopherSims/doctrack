@@ -10,6 +10,26 @@ from async_utils import run_in_thread, run_cpu_bound, gather_tasks
 
 DB_PATH = os.environ.get('DOCTRACK_DB_PATH', os.path.join(os.path.expanduser('~'), '.doctrack', 'doctrack.db'))
 
+# --- Password hashing ---
+try:
+    from werkzeug.security import generate_password_hash, check_password_hash
+except ImportError:
+    import hashlib
+    def generate_password_hash(password, method='pbkdf2:sha256', salt_length=8):
+        salt = os.urandom(salt_length).hex()
+        hashval = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000).hex()
+        return f'pbkdf2:sha256:{salt_length}${salt}${hashval}'
+    def check_password_hash(pwhash, password):
+        if not pwhash or '$' not in pwhash:
+            return False
+        try:
+            parts = pwhash.split('$')
+            salt = parts[0].split(':')[-1] if ':' in parts[0] else parts[0]
+            hashval = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000).hex()
+            return hashval == parts[-1]
+        except Exception:
+            return False
+
 def ensure_db_dir():
     """Ensure the database directory exists"""
     db_dir = os.path.dirname(DB_PATH)
@@ -289,6 +309,38 @@ def init_db():
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_cp_doc ON change_proposals(documentId)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_cp_status ON change_proposals(status)')
+    
+    # --- Users & Authentication ---
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        role TEXT DEFAULT 'user',
+        createdAt TEXT NOT NULL
+    )
+    ''')
+    
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS user_sessions (
+        id TEXT PRIMARY KEY,
+        userId INTEGER NOT NULL,
+        createdAt TEXT NOT NULL,
+        expiresAt TEXT,
+        FOREIGN KEY (userId) REFERENCES users(id)
+    )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_sessions_user ON user_sessions(userId)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_sessions_id ON user_sessions(id)')
+    
+    # Seed default users if none exist
+    cursor.execute('SELECT COUNT(*) FROM users')
+    if cursor.fetchone()[0] == 0:
+        now = datetime.utcnow().isoformat()
+        cursor.execute('INSERT INTO users (username, password_hash, role, createdAt) VALUES (?, ?, ?, ?)',
+                       ('admin', generate_password_hash('admin'), 'admin', now))
+        cursor.execute('INSERT INTO users (username, password_hash, role, createdAt) VALUES (?, ?, ?, ?)',
+                       ('test', generate_password_hash('test1'), 'user', now))
     
     # Migration: add lastEditedBy column to requirements table if not exists
     cursor.execute('PRAGMA table_info(requirements)')
@@ -2260,3 +2312,94 @@ def get_change_proposal_history(cp_id):
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+# --- User & Auth Functions ---
+
+def create_user_db(username, password, role='user'):
+    """Create a new user with iterated userID (id). Returns user dict or None if username exists."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        now = datetime.utcnow().isoformat()
+        cursor.execute('INSERT INTO users (username, password_hash, role, createdAt) VALUES (?, ?, ?, ?)',
+                       (username, generate_password_hash(password), role, now))
+        conn.commit()
+        user_id = cursor.lastrowid
+        cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except sqlite3.IntegrityError:
+        conn.close()
+        return None
+
+def get_user_by_username(username):
+    """Get user by username."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def get_user_by_id(user_id):
+    """Get user by id (userID)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def list_users_db():
+    """List all users."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT id, username, role, createdAt FROM users ORDER BY id')
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def verify_user_password(username, password):
+    """Verify username/password. Returns user dict or None."""
+    user = get_user_by_username(username)
+    if not user:
+        return None
+    if check_password_hash(user['password_hash'], password):
+        return user
+    return None
+
+def create_session(user_id):
+    """Create a new session token for a user."""
+    session_id = str(uuid4())
+    now = datetime.utcnow().isoformat()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('INSERT INTO user_sessions (id, userId, createdAt, expiresAt) VALUES (?, ?, ?, ?)',
+                   (session_id, user_id, now, None))
+    conn.commit()
+    conn.close()
+    return session_id
+
+def get_session_user(session_id):
+    """Get user dict for a valid session token."""
+    if not session_id:
+        return None
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT userId FROM user_sessions WHERE id = ?', (session_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return get_user_by_id(row[0])
+
+def delete_session(session_id):
+    """Delete a session (logout)."""
+    if not session_id:
+        return
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM user_sessions WHERE id = ?', (session_id,))
+    conn.commit()
+    conn.close()

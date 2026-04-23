@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Save as SaveIcon } from 'lucide-react';
+import { Settings as SettingsIcon, Save as SaveIcon, Users, Plus, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,6 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useAuth } from '../contexts/AuthContext';
+import * as API from '../../api/api';
 
 const defaultSettings = {
   apiBaseUrl: 'http://localhost:5000/api',
@@ -30,10 +32,18 @@ const applyDarkMode = (dark: boolean) => {
 };
 
 const SettingsPage: React.FC = () => {
+  const { isAdmin } = useAuth();
   const [settings, setSettings] = useState(defaultSettings);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
   void loading;
+
+  // Admin user management state
+  const [users, setUsers] = useState<any[]>([]);
+  const [showUserPanel, setShowUserPanel] = useState(false);
+  const [newUserForm, setNewUserForm] = useState({ username: '', password: '', role: 'user' });
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [userMessage, setUserMessage] = useState('');
 
   // Load settings from AppData on mount
   useEffect(() => {
@@ -49,6 +59,38 @@ const SettingsPage: React.FC = () => {
       setLoading(false);
     })();
   }, []);
+
+  const loadUsers = async () => {
+    const res = await API.getUsers();
+    if (res.success && res.data) {
+      setUsers(res.data);
+    }
+  };
+
+  const handleCreateUser = async () => {
+    if (!newUserForm.username.trim() || !newUserForm.password.trim()) return;
+    setCreatingUser(true);
+    setUserMessage('');
+    const res = await API.createUser({
+      username: newUserForm.username,
+      password: newUserForm.password,
+      role: newUserForm.role,
+    });
+    setCreatingUser(false);
+    if (res.success) {
+      setUserMessage(`User ${newUserForm.username} created successfully`);
+      setNewUserForm({ username: '', password: '', role: 'user' });
+      await loadUsers();
+    } else {
+      setUserMessage(res.error || 'Failed to create user');
+    }
+  };
+
+  useEffect(() => {
+    if (showUserPanel && isAdmin) {
+      loadUsers();
+    }
+  }, [showUserPanel, isAdmin]);
 
   const updateSettings = (patch: Partial<typeof settings>) => {
     setSettings(prev => {
@@ -207,6 +249,81 @@ const SettingsPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {isAdmin && (
+        <div className="rounded-lg border bg-card p-3 mb-2">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
+              <Users className="h-4 w-4" />
+              User Management
+            </h2>
+            <Button variant="outline" size="sm" onClick={() => setShowUserPanel(p => !p)}>
+              {showUserPanel ? 'Hide' : 'Manage'}
+            </Button>
+          </div>
+          {showUserPanel && (
+            <div className="space-y-3">
+              {userMessage && (
+                <Alert className={userMessage.includes('success') ? 'border-green-500 bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200' : 'border-destructive'}>
+                  <AlertDescription>{userMessage}</AlertDescription>
+                </Alert>
+              )}
+              <div className="space-y-2">
+                <h3 className="text-xs font-medium text-muted-foreground uppercase">Existing Users</h3>
+                <div className="rounded border divide-y">
+                  {users.map((u) => (
+                    <div key={u.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{u.username}</span>
+                        <span className="text-xs text-muted-foreground">ID: {u.id}</span>
+                      </div>
+                      <span className="text-xs capitalize bg-secondary px-2 py-0.5 rounded">{u.role}</span>
+                    </div>
+                  ))}
+                  {users.length === 0 && (
+                    <div className="px-3 py-2 text-sm text-muted-foreground">No users found</div>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-xs font-medium text-muted-foreground uppercase">Create New User</h3>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Username"
+                    value={newUserForm.username}
+                    onChange={(e) => setNewUserForm(prev => ({ ...prev, username: e.target.value }))}
+                  />
+                  <Input
+                    placeholder="Password"
+                    type="password"
+                    value={newUserForm.password}
+                    onChange={(e) => setNewUserForm(prev => ({ ...prev, password: e.target.value }))}
+                  />
+                  <Select
+                    value={newUserForm.role}
+                    onValueChange={(value) => setNewUserForm(prev => ({ ...prev, role: value }))}
+                  >
+                    <SelectTrigger className="w-[120px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="user">User</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    onClick={handleCreateUser}
+                    disabled={creatingUser || !newUserForm.username.trim() || !newUserForm.password.trim()}
+                  >
+                    {creatingUser ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                    Create
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <Button
         size="lg"

@@ -1,9 +1,75 @@
 const API_BASE_URL = 'http://localhost:5000/api';
 
+// --- Auth token helpers ---
+const AUTH_TOKEN_KEY = 'doctrack_auth_token';
+
+export function getAuthToken(): string | null {
+  return localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+export function setAuthToken(token: string | null) {
+  if (token) {
+    localStorage.setItem(AUTH_TOKEN_KEY, token);
+  } else {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+  }
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;
   error?: string;
+}
+
+// --- Auth API ---
+export async function login(username: string, password: string): Promise<ApiResponse<{ token: string; user: { id: number; username: string; role: string } }>> {
+  const response = await fetch(`${API_BASE_URL}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  const json = await response.json();
+  if (json.success && json.data?.token) {
+    setAuthToken(json.data.token);
+  }
+  return json;
+}
+
+export async function getMe(): Promise<ApiResponse<{ id: number; username: string; role: string }>> {
+  const response = await fetch(`${API_BASE_URL}/auth/me`, {
+    headers: authHeaders(),
+  });
+  return response.json();
+}
+
+export async function logout(): Promise<ApiResponse<null>> {
+  const response = await fetch(`${API_BASE_URL}/auth/logout`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  setAuthToken(null);
+  return response.json();
+}
+
+export async function getUsers(): Promise<ApiResponse<any[]>> {
+  const response = await fetch(`${API_BASE_URL}/users`, {
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+  });
+  return response.json();
+}
+
+export async function createUser(payload: { username: string; password: string; role?: string }): Promise<ApiResponse<any>> {
+  const response = await fetch(`${API_BASE_URL}/users`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return response.json();
 }
 
 // Document API
