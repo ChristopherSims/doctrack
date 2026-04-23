@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Save as SaveIcon, Users, Plus, Loader2 } from 'lucide-react';
+import { Settings as SettingsIcon, Save as SaveIcon, Users, Plus, Loader2, Server, TestTube, Trash2, CheckCircle, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -44,6 +44,16 @@ const SettingsPage: React.FC = () => {
   const [newUserForm, setNewUserForm] = useState({ username: '', password: '', role: 'user' });
   const [creatingUser, setCreatingUser] = useState(false);
   const [userMessage, setUserMessage] = useState('');
+
+  // OneDev integration state
+  const [oneDevUrl, setOneDevUrl] = useState('');
+  const [oneDevToken, setOneDevToken] = useState('');
+  const [oneDevProject, setOneDevProject] = useState('');
+  const [oneDevProjects, setOneDevProjects] = useState<any[]>([]);
+  const [loadingOneDev, setLoadingOneDev] = useState(false);
+  const [testingOneDev, setTestingOneDev] = useState(false);
+  const [oneDevTestResult, setOneDevTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [showOneDevPanel, setShowOneDevPanel] = useState(false);
 
   // Load settings from AppData on mount
   useEffect(() => {
@@ -91,6 +101,70 @@ const SettingsPage: React.FC = () => {
       loadUsers();
     }
   }, [showUserPanel, isAdmin]);
+
+  // OneDev handlers
+  const loadOneDevConfig = async () => {
+    setLoadingOneDev(true);
+    const res = await API.getOneDevConfig();
+    if (res.success && res.data) {
+      setOneDevUrl(res.data.url || '');
+      setOneDevToken(res.data.token || '');
+      setOneDevProject(res.data.project || '');
+    }
+    setLoadingOneDev(false);
+  };
+
+  const fetchOneDevProjects = async () => {
+    const res = await API.getOneDevProjects();
+    if (res.success && res.data) {
+      setOneDevProjects(res.data);
+    } else {
+      setOneDevProjects([]);
+    }
+  };
+
+  const handleTestOneDev = async () => {
+    setTestingOneDev(true);
+    setOneDevTestResult(null);
+    const res = await API.testOneDevConnection();
+    setTestingOneDev(false);
+    if (res.success) {
+      setOneDevTestResult({ success: true, message: 'Connected successfully' });
+    } else {
+      setOneDevTestResult({ success: false, message: res.error || 'Connection failed' });
+    }
+  };
+
+  const handleSaveOneDev = async () => {
+    setOneDevTestResult(null);
+    const res = await API.updateOneDevConfig({
+      url: oneDevUrl,
+      token: oneDevToken,
+      project: oneDevProject,
+    });
+    if (res.success) {
+      setOneDevTestResult({ success: true, message: 'OneDev config saved' });
+      await fetchOneDevProjects();
+    } else {
+      setOneDevTestResult({ success: false, message: res.error || 'Failed to save' });
+    }
+  };
+
+  const handleClearOneDev = async () => {
+    setOneDevTestResult(null);
+    await API.deleteOneDevConfig();
+    setOneDevUrl('');
+    setOneDevToken('');
+    setOneDevProject('');
+    setOneDevProjects([]);
+    setOneDevTestResult({ success: true, message: 'OneDev config cleared' });
+  };
+
+  useEffect(() => {
+    if (showOneDevPanel) {
+      loadOneDevConfig().then(() => fetchOneDevProjects());
+    }
+  }, [showOneDevPanel]);
 
   const updateSettings = (patch: Partial<typeof settings>) => {
     setSettings(prev => {
@@ -248,6 +322,87 @@ const SettingsPage: React.FC = () => {
             </Select>
           </div>
         </div>
+      </div>
+
+      <div className="rounded-lg border bg-card p-3 mb-2">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-sm font-semibold flex items-center gap-2">
+            <Server className="h-4 w-4" />
+            OneDev Integration
+          </h2>
+          <Button variant="outline" size="sm" onClick={() => setShowOneDevPanel(p => !p)}>
+            {showOneDevPanel ? 'Hide' : 'Configure'}
+          </Button>
+        </div>
+        {showOneDevPanel && (
+          <div className="space-y-3">
+            {oneDevTestResult && (
+              <Alert className={oneDevTestResult.success ? 'border-green-500 bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200' : 'border-destructive'}>
+                <AlertDescription className="flex items-center gap-2">
+                  {oneDevTestResult.success ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+                  {oneDevTestResult.message}
+                </AlertDescription>
+              </Alert>
+            )}
+            <div className="space-y-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="onedev-url">OneDev Server URL</Label>
+                <Input
+                  id="onedev-url"
+                  placeholder="http://localhost:6610"
+                  value={oneDevUrl}
+                  onChange={(e) => setOneDevUrl(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="onedev-token">Access Token</Label>
+                <Input
+                  id="onedev-token"
+                  type="password"
+                  placeholder="Bearer token"
+                  value={oneDevToken}
+                  onChange={(e) => setOneDevToken(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="onedev-project">Default Project</Label>
+                <Select
+                  value={oneDevProject}
+                  onValueChange={(value) => setOneDevProject(value)}
+                >
+                  <SelectTrigger id="onedev-project">
+                    <SelectValue placeholder={loadingOneDev ? 'Loading...' : 'Select a project'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {oneDevProjects.map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                    {oneDevProjects.length === 0 && !loadingOneDev && (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">No projects found</div>
+                    )}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Save config with URL + token, then pick a project</p>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <Button variant="outline" size="sm" onClick={handleTestOneDev} disabled={testingOneDev || !oneDevUrl || !oneDevToken}>
+                  {testingOneDev ? <Loader2 className="h-4 w-4 animate-spin" /> : <TestTube className="h-4 w-4" />}
+                  Test
+                </Button>
+                <Button size="sm" onClick={handleSaveOneDev} disabled={!oneDevUrl || !oneDevToken}>
+                  <SaveIcon className="h-4 w-4" />
+                  Save
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleClearOneDev} disabled={!oneDevUrl && !oneDevToken}>
+                  <Trash2 className="h-4 w-4" />
+                  Clear
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {isAdmin && (

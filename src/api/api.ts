@@ -583,3 +583,105 @@ export async function getChangeProposalHistory(cpId: string): Promise<ApiRespons
   const response = await fetch(`${API_BASE_URL}/change-proposals/${encodeURIComponent(cpId)}/history`);
   return response.json();
 }
+
+// --- OneDev Integration API ---
+
+export async function getOneDevConfig(): Promise<ApiResponse<{ url: string; project: string; token: string }>> {
+  const response = await fetch(`${API_BASE_URL}/integrations/onedev/config`, {
+    headers: authHeaders(),
+  });
+  return response.json();
+}
+
+export async function updateOneDevConfig(payload: { url?: string; project?: string; token?: string }): Promise<ApiResponse<null>> {
+  const response = await fetch(`${API_BASE_URL}/integrations/onedev/config`, {
+    method: 'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return response.json();
+}
+
+export async function deleteOneDevConfig(): Promise<ApiResponse<null>> {
+  const response = await fetch(`${API_BASE_URL}/integrations/onedev/config`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  return response.json();
+}
+
+export async function testOneDevConnection(): Promise<ApiResponse<any>> {
+  const response = await fetch(`${API_BASE_URL}/integrations/onedev/test`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  return response.json();
+}
+
+export async function getOneDevProjects(q?: string): Promise<ApiResponse<any[]>> {
+  const url = new URL(`${API_BASE_URL}/integrations/onedev/projects`);
+  if (q) url.searchParams.set('q', q);
+  const response = await fetch(url.toString(), { headers: authHeaders() });
+  return response.json();
+}
+
+export async function getOneDevProject(projectId: number): Promise<ApiResponse<any>> {
+  const response = await fetch(`${API_BASE_URL}/integrations/onedev/projects/${projectId}`, {
+    headers: authHeaders(),
+  });
+  return response.json();
+}
+
+export async function getOneDevIssues(projectId: number, q?: string, offset = 0, count = 50): Promise<ApiResponse<any[]>> {
+  const url = new URL(`${API_BASE_URL}/integrations/onedev/issues`);
+  url.searchParams.set('projectId', String(projectId));
+  if (q) url.searchParams.set('q', q);
+  url.searchParams.set('offset', String(offset));
+  url.searchParams.set('count', String(count));
+  const response = await fetch(url.toString(), { headers: authHeaders() });
+  return response.json();
+}
+
+export async function getOneDevIssue(issueId: number): Promise<ApiResponse<any>> {
+  const response = await fetch(`${API_BASE_URL}/integrations/onedev/issues/${issueId}`, {
+    headers: authHeaders(),
+  });
+  return response.json();
+}
+
+export async function getOneDevBuilds(projectId: number, job?: string, offset = 0, count = 50): Promise<ApiResponse<any[]>> {
+  const url = new URL(`${API_BASE_URL}/integrations/onedev/builds`);
+  url.searchParams.set('projectId', String(projectId));
+  if (job) url.searchParams.set('job', job);
+  url.searchParams.set('offset', String(offset));
+  url.searchParams.set('count', String(count));
+  const response = await fetch(url.toString(), { headers: authHeaders() });
+  return response.json();
+}
+
+export async function getOneDevBuild(buildId: number): Promise<ApiResponse<any>> {
+  const response = await fetch(`${API_BASE_URL}/integrations/onedev/builds/${buildId}`, {
+    headers: authHeaders(),
+  });
+  return response.json();
+}
+
+export async function getOneDevCommits(projectId: number, branch?: string, offset = 0, count = 50): Promise<ApiResponse<any[]>> {
+  const url = new URL(`${API_BASE_URL}/integrations/onedev/commits`);
+  url.searchParams.set('projectId', String(projectId));
+  if (branch) url.searchParams.set('branch', branch);
+  url.searchParams.set('offset', String(offset));
+  url.searchParams.set('count', String(count));
+  const response = await fetch(url.toString(), { headers: authHeaders() });
+  return response.json();
+}
+
+export async function getOneDevPullRequests(projectId: number, q?: string, offset = 0, count = 50): Promise<ApiResponse<any[]>> {
+  const url = new URL(`${API_BASE_URL}/integrations/onedev/pull-requests`);
+  url.searchParams.set('projectId', String(projectId));
+  if (q) url.searchParams.set('q', q);
+  url.searchParams.set('offset', String(offset));
+  url.searchParams.set('count', String(count));
+  const response = await fetch(url.toString(), { headers: authHeaders() });
+  return response.json();
+}
