@@ -39,6 +39,9 @@ interface ParsedRow {
   changeRequestLink: string;
   testPlan: string;
   testPlanLink: string;
+  onedevIssueLink: string;
+  onedevBuildLink: string;
+  onedevCommitLink: string;
   verificationMethod: string;
   rationale: string;
   tags: string;
@@ -57,6 +60,9 @@ const COLUMN_MAP: Record<string, keyof ParsedRow> = {
   'change request link': 'changeRequestLink',
   'test plan': 'testPlan',
   'test plan link': 'testPlanLink',
+  'onedev issue link': 'onedevIssueLink',
+  'onedev build link': 'onedevBuildLink',
+  'onedev commit link': 'onedevCommitLink',
   'verification method': 'verificationMethod',
   'rationale': 'rationale',
   'tags': 'tags',
@@ -156,6 +162,9 @@ const CSVImportDialog: React.FC<CSVImportDialogProps> = ({
         changeRequestLink: '',
         testPlan: '',
         testPlanLink: '',
+        onedevIssueLink: '',
+        onedevBuildLink: '',
+        onedevCommitLink: '',
         verificationMethod: '',
         rationale: '',
         tags: '',
@@ -237,6 +246,9 @@ const CSVImportDialog: React.FC<CSVImportDialogProps> = ({
         changeRequestLink: r.changeRequestLink,
         testPlan: r.testPlan,
         testPlanLink: r.testPlanLink,
+        onedevIssueLink: r.onedevIssueLink,
+        onedevBuildLink: r.onedevBuildLink,
+        onedevCommitLink: r.onedevCommitLink,
         verificationMethod: r.verificationMethod,
         rationale: r.rationale,
         tags: r.tags,

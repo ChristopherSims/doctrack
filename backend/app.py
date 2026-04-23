@@ -591,7 +591,8 @@ def csv_template_export(doc_id):
         headers = [
             'Level', 'Title', 'Description', 'Status', 'Priority',
             'Change Request ID', 'Change Request Link', 'Test Plan',
-            'Test Plan Link', 'Verification Method', 'Rationale', 'Tags'
+            'Test Plan Link', 'OneDev Issue Link', 'OneDev Build Link', 'OneDev Commit Link',
+            'Verification Method', 'Rationale', 'Tags'
         ]
 
         output = StringIO()
@@ -652,6 +653,9 @@ def csv_import(doc_id):
                 'changeRequestLink': row.get('changeRequestLink', ''),
                 'testPlan': row.get('testPlan', ''),
                 'testPlanLink': row.get('testPlanLink', ''),
+                'onedevIssueLink': row.get('onedevIssueLink', ''),
+                'onedevBuildLink': row.get('onedevBuildLink', ''),
+                'onedevCommitLink': row.get('onedevCommitLink', ''),
                 'verificationMethod': row.get('verificationMethod', ''),
                 'rationale': row.get('rationale', ''),
                 'tags': tags,
