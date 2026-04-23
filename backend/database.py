@@ -92,6 +92,9 @@ def init_db():
         changeRequestLink TEXT,
         testPlan TEXT,
         testPlanLink TEXT,
+        onedevIssueLink TEXT,
+        onedevBuildLink TEXT,
+        onedevCommitLink TEXT,
         verificationMethod TEXT,
         rationale TEXT,
         tags TEXT DEFAULT '[]',
@@ -150,6 +153,12 @@ def init_db():
         cursor.execute('ALTER TABLE requirements ADD COLUMN custom_fields TEXT DEFAULT \'{}\'')
     if 'related_requirements' not in req_columns:
         cursor.execute('ALTER TABLE requirements ADD COLUMN related_requirements TEXT DEFAULT \'[]\'')
+    if 'onedevIssueLink' not in req_columns:
+        cursor.execute('ALTER TABLE requirements ADD COLUMN onedevIssueLink TEXT')
+    if 'onedevBuildLink' not in req_columns:
+        cursor.execute('ALTER TABLE requirements ADD COLUMN onedevBuildLink TEXT')
+    if 'onedevCommitLink' not in req_columns:
+        cursor.execute('ALTER TABLE requirements ADD COLUMN onedevCommitLink TEXT')
     
     # Add columns to existing documents table if they don't exist
     cursor.execute('PRAGMA table_info(documents)')
@@ -656,8 +665,9 @@ def create_requirement_db(data):
     INSERT INTO requirements 
     (id, documentId, title, description, status, priority, level, sequenceNumber, createdAt, updatedAt, createdBy, 
      parentRequirementId, changeRequestId, changeRequestLink, testPlan, testPlanLink, 
+     onedevIssueLink, onedevBuildLink, onedevCommitLink,
      verificationMethod, rationale, tags, custom_fields, related_requirements)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         req_id,
         doc_id,
@@ -675,6 +685,9 @@ def create_requirement_db(data):
         data.get('changeRequestLink', ''),
         data.get('testPlan', ''),
         data.get('testPlanLink', ''),
+        data.get('onedevIssueLink', ''),
+        data.get('onedevBuildLink', ''),
+        data.get('onedevCommitLink', ''),
         data.get('verificationMethod', ''),
         data.get('rationale', ''),
         json.dumps(data.get('tags', [])),
@@ -709,6 +722,7 @@ def update_requirement_db(req_id, data):
     
     fields = ['title', 'description', 'status', 'priority', 'level', 'parentRequirementId',
               'changeRequestId', 'changeRequestLink', 'testPlan', 'testPlanLink',
+              'onedevIssueLink', 'onedevBuildLink', 'onedevCommitLink',
               'verificationMethod', 'rationale', 'sequenceNumber']
     
     for field in fields:
@@ -801,6 +815,7 @@ def batch_update_requirements(updates_list):
     
     plain_fields = ['title', 'description', 'status', 'priority', 'level', 'parentRequirementId',
                     'changeRequestId', 'changeRequestLink', 'testPlan', 'testPlanLink',
+                    'onedevIssueLink', 'onedevBuildLink', 'onedevCommitLink',
                     'verificationMethod', 'rationale', 'sequenceNumber']
     json_fields = ['tags', 'custom_fields', 'related_requirements']
     all_updateable_fields = plain_fields + json_fields
