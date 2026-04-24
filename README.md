@@ -5,7 +5,7 @@ A professional desktop application for managing requirements documents with git-
 **Status**: Actively developed. Features include branching, traceability, change proposals, audit logging, rich text editing, CSV import/export, and OneDev issue/build/commit/PR linking.
 
 
-![Alt text](Capture.png)
+![Alt text](Capture.PNG)
 
 ---
 
