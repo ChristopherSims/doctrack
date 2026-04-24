@@ -20,3 +20,4 @@ backend/__pycache__/
 .hermes/
 onedev/
 onedev
+*.md
