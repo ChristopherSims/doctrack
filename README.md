@@ -2,7 +2,9 @@
 
 A professional desktop application for managing requirements documents with git-like version control, hierarchical flowdown, and deep OneDev integration.
 
-**Status**: Actively developed. Features include branching, traceability, change proposals, audit logging, rich text editing, CSV import/export, and [OneDev](https://github.com/theonedev/onedev) issue/build/commit/PR linking.
+**Status**: Actively developed. 
+
+Features include branching, traceability, change proposals, audit logging, rich text editing, CSV import/export, and [OneDev](https://github.com/theonedev/onedev) issue/build/commit/PR linking.
 
 
 ![Alt text](Capture.PNG)
